@@ -1,0 +1,16 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@std/net@^1.0.6": "1.0.6"
+  },
+  "jsr": {
+    "@std/net@1.0.6": {
+      "integrity": "110735f93e95bb9feb95790a8b1d1bf69ec0dc74f3f97a00a76ea5efea25500c"
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@std/net@^1.0.6"
+    ]
+  }
+}
