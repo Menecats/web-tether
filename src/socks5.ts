@@ -59,12 +59,6 @@ function sendSocksReply(
   boundAddr = "0.0.0.0",
   boundPort = 0,
 ) {
-  console.log(
-    `sending response to client ${
-      ProtocolReply[reply]
-    }, '${boundAddr}', ${boundPort}`,
-  );
-
   // build reply: VER, REP, RSV, ATYP, BND.ADDR, BND.PORT
   let addrBuffer: Uint8Array;
   let atyp: ProtocolAddressType;
@@ -114,15 +108,14 @@ function safelyClose(
 
 async function handleConnection(
   options: CreateSocks5ServerOptions,
+  uuid: string,
   connection: Deno.TcpConn,
 ) {
-  console.log(`Handling connection`);
-
   type Stage = "handshake" | "auth" | "request" | "stream";
   let stage: Stage = "handshake";
 
   let workingBuffer: Uint8Array | undefined;
-  const readBuffer = new Uint8Array(8);
+  const readBuffer = new Uint8Array(256);
 
   let destination: undefined | {
     mode: "ipv4" | "ipv6" | "domain";
@@ -131,54 +124,134 @@ async function handleConnection(
   };
 
   try {
+    options.log("debug", `[${uuid}]: Setup connection.`);
+
+    const decoder = new TextDecoder();
+
     while (true) {
+      options.log("trace", `[${uuid}]: Reading data from connection.`);
+
       const length = await connection.read(readBuffer);
-      if (length == null) return safelyClose(connection);
+      if (length == null) {
+        options.log("debug", `[${uuid}]: End of stream reached, closing.`);
+        return safelyClose(connection);
+      }
 
       workingBuffer = concatBuffers(
         workingBuffer,
         readBuffer.subarray(0, length),
       );
 
-      const decoder = new TextDecoder();
+      options.log(
+        "trace",
+        `[${uuid}]: Read ${
+          stage === "auth" ? "{redacted}" : length
+        } bytes from connection, buffer now contains ${
+          stage === "auth" ? "{redacted}" : workingBuffer.length
+        } bytes.`,
+      );
 
       if (stage === "handshake") {
-        if (workingBuffer.length < 2) continue; // need VER + NMETHODS
+        options.log("trace", `[${uuid}]: Stage: 'handshake'.`);
 
-        const ver = workingBuffer[0];
-        const nmethods = workingBuffer[1];
+        if (workingBuffer.length < 2) {
+          options.log(
+            "trace",
+            `[${uuid}]: Not enough data on buffer: ${2} bytes required, found ${workingBuffer.length} bytes.`,
+          );
+          continue; // need VER + NMETHODS
+        }
 
-        if (ver !== ProtocolVersion) return safelyClose(connection);
+        const socksVersion = workingBuffer[0];
+        const methodsCount = workingBuffer[1];
 
-        if (workingBuffer.length < 2 + nmethods) continue; // wait for full list
+        options.log(
+          "trace",
+          `[${uuid}]: Got socks version (${socksVersion}) and methods count (${methodsCount}).`,
+        );
 
-        const methods = Array.from(workingBuffer.subarray(2, 2 + nmethods));
-        workingBuffer = workingBuffer.subarray(2 + nmethods);
+        if (socksVersion !== ProtocolVersion) {
+          options.log(
+            "debug",
+            `[${uuid}]: Unsupported protocol version: ${socksVersion}, closing.`,
+          );
+          return safelyClose(connection);
+        }
 
-        console.log(`got methods`, methods.map((m) => ProtocolMethods[m]));
+        if (workingBuffer.length < 2 + methodsCount) {
+          options.log(
+            "trace",
+            `[${uuid}]: Not enough data on buffer: ${
+              2 + methodsCount
+            } bytes required, found ${workingBuffer.length} bytes.`,
+          );
+          continue; // wait for full list
+        }
 
-        let chosen = ProtocolMethods.NO_ACCEPTABLE_METHODS;
+        const availableAuthenticationMethods = Array.from(
+          workingBuffer.subarray(2, 2 + methodsCount),
+        );
+        workingBuffer = workingBuffer.subarray(2 + methodsCount);
+
+        options.log(
+          "trace",
+          `[${uuid}]: Got authentication methods: ${
+            availableAuthenticationMethods.map((m) =>
+              ProtocolMethods[m] || `<unknown:${m}>`
+            ).join(
+              ",",
+            )
+          }.`,
+        );
+
+        options.log(
+          "trace",
+          `[${uuid}]: Choosing authentication method given local configuration (enabled: ${options.auth.enabled}${
+            options.auth.enabled ? `, required: ${options.auth.required}` : ""
+          }).`,
+        );
+
+        let chosenAuthenticationMethod = ProtocolMethods.NO_ACCEPTABLE_METHODS;
         if (
           options.auth.enabled &&
-          methods.includes(ProtocolMethods.USERNAME_PASSWORD)
+          availableAuthenticationMethods.includes(
+            ProtocolMethods.USERNAME_PASSWORD,
+          )
         ) {
-          chosen = ProtocolMethods.USERNAME_PASSWORD;
+          chosenAuthenticationMethod = ProtocolMethods.USERNAME_PASSWORD;
         } else if (
           (!options.auth.enabled || !options.auth.required) &&
-          methods.includes(ProtocolMethods.NO_AUTHENTICATION_REQUIRED)
+          availableAuthenticationMethods.includes(
+            ProtocolMethods.NO_AUTHENTICATION_REQUIRED,
+          )
         ) {
-          chosen = ProtocolMethods.NO_AUTHENTICATION_REQUIRED;
+          chosenAuthenticationMethod =
+            ProtocolMethods.NO_AUTHENTICATION_REQUIRED;
         }
 
-        console.log(`chose ${ProtocolMethods[chosen]}`);
-        connection.write(new Uint8Array([ProtocolVersion, chosen]));
+        options.log(
+          "trace",
+          `[${uuid}]: Authentication method chosen: ${
+            ProtocolMethods[chosenAuthenticationMethod] ||
+            `<unknown:${chosenAuthenticationMethod}>`
+          }.`,
+        );
 
-        if (chosen === ProtocolMethods.NO_ACCEPTABLE_METHODS) {
-          safelyClose(connection);
-          return;
+        connection.write(
+          new Uint8Array([ProtocolVersion, chosenAuthenticationMethod]),
+        );
+
+        if (
+          chosenAuthenticationMethod === ProtocolMethods.NO_ACCEPTABLE_METHODS
+        ) {
+          options.log(
+            "debug",
+            `[${uuid}]: No available authentication methods found.`,
+          );
+          return safelyClose(connection);
         }
 
-        if (chosen === ProtocolMethods.USERNAME_PASSWORD) {
+        if (chosenAuthenticationMethod === ProtocolMethods.USERNAME_PASSWORD) {
           stage = "auth";
         } else {
           stage = "request";
@@ -186,87 +259,138 @@ async function handleConnection(
       }
 
       if (stage === "auth") {
-        console.log(`handling auth`);
+        options.log("trace", `[${uuid}]: Stage: 'auth'.`);
+
         // RFC1929: VER(1)=0x01, ULEN, UNAME, PLEN, PASSWD
         if (workingBuffer.length < 2) {
-          console.log(`need more data`);
+          options.log(
+            "trace",
+            `[${uuid}]: Not enough data on buffer: ${2} bytes required, found ${workingBuffer.length} bytes.`,
+          );
           continue; // need at least VER + ULEN
         }
 
-        const ver = workingBuffer[0];
-        console.log(`got auth version`, ver);
-        if (ver !== AuthVersion) {
-          console.log(`invalid auth version`);
-          safelyClose(connection);
-          return;
+        const authenticationVersion = workingBuffer[0];
+        options.log(
+          "trace",
+          `[${uuid}]: Got authentication version (${authenticationVersion}).`,
+        );
+
+        if (authenticationVersion !== AuthVersion) {
+          options.log(
+            "debug",
+            `[${uuid}]: Unsupported authentication version: ${authenticationVersion}, closing.`,
+          );
+          return safelyClose(connection);
         }
 
-        const ulen = workingBuffer[1];
-        console.log(`got auth length`, ulen);
-        if (workingBuffer.length < 2 + ulen + 1) {
-          console.log(`need more data`);
+        const usernameLength = workingBuffer[1];
+        options.log("trace", `[${uuid}]: Got username length.`);
+
+        if (workingBuffer.length < 2 + usernameLength + 1) {
+          options.log(
+            "trace",
+            `[${uuid}]: Not enough data on buffer: {redacted} bytes required, found {redacted} bytes.`,
+          );
           continue;
         }
 
-        const uname = decoder.decode(workingBuffer.subarray(2, 2 + ulen));
-        const plen = workingBuffer[2 + ulen];
-        console.log(`got username and password length`, uname, plen);
-        if (workingBuffer.length < 2 + ulen + 1 + plen) {
-          console.log(`need more data`);
+        const username = decoder.decode(
+          workingBuffer.subarray(2, 2 + usernameLength),
+        );
+        const passwordLength = workingBuffer[2 + usernameLength];
+
+        options.log("trace", `[${uuid}]: Got username and password length.`);
+        if (workingBuffer.length < 2 + usernameLength + 1 + passwordLength) {
+          options.log(
+            "trace",
+            `[${uuid}]: Not enough data on buffer: {redacted} bytes required, found {redacted} bytes.`,
+          );
           continue;
         }
 
-        const passwd = decoder.decode(
-          workingBuffer.subarray(2 + ulen + 1, 2 + ulen + 1 + plen),
+        const password = decoder.decode(
+          workingBuffer.subarray(
+            2 + usernameLength + 1,
+            2 + usernameLength + 1 + passwordLength,
+          ),
         );
-        console.log(`got password`, passwd);
+        options.log("trace", `[${uuid}]: Got password.`);
 
-        workingBuffer = workingBuffer.subarray(2 + ulen + 1 + plen);
-
-        console.log(`validating credentials`);
-        const ok = options.auth.enabled &&
-          await options.auth.validate(uname, passwd);
-        connection.write(
-          new Uint8Array([
-            AuthVersion,
-            ok ? AuthResult.SUCCESS : AuthResult.FAILURE,
-          ]),
+        workingBuffer = workingBuffer.subarray(
+          2 + usernameLength + 1 + passwordLength,
         );
-        if (!ok) {
-          console.log(`invalid credentials`);
-          safelyClose(connection);
-          return;
+
+        options.log("trace", `[${uuid}]: Validating credentials.`);
+        const authenticationResult = (options.auth.enabled &&
+            await options.auth.validate(username, password))
+          ? AuthResult.SUCCESS
+          : AuthResult.FAILURE;
+
+        options.log(
+          "trace",
+          `[${uuid}]: Authentication result: ${
+            AuthResult[authenticationResult] ||
+            `<unknown:${authenticationResult}>`
+          }.`,
+        );
+
+        connection.write(new Uint8Array([AuthVersion, authenticationResult]));
+        if (authenticationResult !== AuthResult.SUCCESS) {
+          options.log(
+            "debug",
+            `[${uuid}]: Authentication failed, closing.`,
+          );
+          return safelyClose(connection);
         }
-        console.log(`goto request`);
+
         stage = "request";
       }
 
       if (stage === "request") {
-        console.log(`handling request`);
+        options.log("trace", `[${uuid}]: Stage: 'request'.`);
+
         // need at least 4 bytes to know ATYP: VER, CMD, RSV, ATYP
         if (workingBuffer.length < 4) {
-          console.log(`need more data`);
+          options.log(
+            "trace",
+            `[${uuid}]: Not enough data on buffer: ${4} bytes required, found ${workingBuffer.length} bytes.`,
+          );
           continue;
         }
-        const ver = workingBuffer[0];
-        console.log(`got version`, ver);
 
-        if (ver !== ProtocolVersion) {
-          console.log(`unsupported version`);
-          safelyClose(connection);
-          return;
+        const socksVersion = workingBuffer[0];
+        const command = workingBuffer[1];
+        // rsv = workingBuffer[2];
+        const addressType = workingBuffer[3];
+
+        options.log(
+          "trace",
+          `[${uuid}]: Got socks version (${socksVersion}), command (${
+            ProtocolCommand[command] || `<unknown:${command}>`
+          }) and address type (${
+            ProtocolAddressType[addressType] || `<unknown:${addressType}>`
+          }).`,
+        );
+
+        if (socksVersion !== ProtocolVersion) {
+          options.log(
+            "debug",
+            `[${uuid}]: Unsupported protocol version: ${socksVersion}, closing.`,
+          );
+          return safelyClose(connection);
         }
 
-        const cmd = workingBuffer[1];
-        console.log(`got command`, ProtocolCommand[cmd]);
-        if (cmd !== ProtocolCommand.CONNECT) {
-          console.log(`unsupported command`);
+        if (command !== ProtocolCommand.CONNECT) {
+          options.log(
+            "debug",
+            `[${uuid}]: Unsupported command ${
+              ProtocolCommand[command] || `<unknown:${command}>`
+            }.`,
+          );
           sendSocksReply(connection, ProtocolReply.COMMAND_NOT_SUPPORTED);
-          safelyClose(connection);
-          return;
+          return safelyClose(connection);
         }
-
-        // const rsv = acc[2];
 
         const workingBufferView = new DataView(
           workingBuffer.buffer,
@@ -274,16 +398,21 @@ async function handleConnection(
           workingBuffer.byteLength,
         );
 
-        const atyp = workingBuffer[3];
+        options.log("trace", `[${uuid}]: Parsing destination address.`);
+
         let offset = 4;
-        if (atyp === ProtocolAddressType.IP_V4) {
-          console.log(`handling ipv4`);
+        if (addressType === ProtocolAddressType.IP_V4) {
+          options.log("trace", `[${uuid}]: Parsing IPv4 address.`);
           if (workingBuffer.length < offset + 4 + 2) {
-            console.log(`need more data`);
+            options.log(
+              "trace",
+              `[${uuid}]: Not enough data on buffer: ${
+                offset + 4 + 2
+              } bytes required, found ${workingBuffer.length} bytes.`,
+            );
             continue; // Wait for a complete ipv4 and port
           }
 
-          const mode = "ipv4";
           const host = Array.from(
             workingBuffer.subarray(offset, offset + 4),
           ).join(
@@ -294,11 +423,16 @@ async function handleConnection(
           const port = workingBufferView.getUint16(offset, false);
           offset += 2;
 
-          destination = { mode, host, port };
-        } else if (atyp === ProtocolAddressType.IP_V6) {
-          console.log(`handling ipv6`);
+          destination = { mode: "ipv4", host, port };
+        } else if (addressType === ProtocolAddressType.IP_V6) {
+          options.log("trace", `[${uuid}]: Parsing IPv6 address.`);
           if (workingBuffer.length < offset + 16 + 2) {
-            console.log(`need more data`);
+            options.log(
+              "trace",
+              `[${uuid}]: Not enough data on buffer: ${
+                offset + 16 + 2
+              } bytes required, found ${workingBuffer.length} bytes.`,
+            );
             continue; // Wait for a copmlete ipv6 and port
           }
 
@@ -309,85 +443,121 @@ async function handleConnection(
             );
           }
 
-          const mode = "ipv6";
           const host = parts.join(":");
           offset += 16;
 
           const port = workingBufferView.getUint16(offset, false);
           offset += 2;
 
-          destination = { mode, host, port };
-        } else if (atyp === ProtocolAddressType.DOMAINNAME) {
-          console.log(`handling domain`);
+          destination = { mode: "ipv6", host, port };
+        } else if (addressType === ProtocolAddressType.DOMAINNAME) {
+          options.log("trace", `[${uuid}]: Parsing domain name.`);
           if (workingBuffer.length < offset + 1) {
-            console.log(`need more data`);
+            options.log(
+              "trace",
+              `[${uuid}]: Not enough data on buffer: ${
+                offset + 1
+              } bytes required, found ${workingBuffer.length} bytes.`,
+            );
             continue; // Wait for domain length
           }
-          const len = workingBuffer[offset];
-          console.log(`got domain length`, len);
+
+          const hostLength = workingBuffer[offset];
           offset += 1;
-          if (workingBuffer.length < offset + len + 2) {
-            console.log(`need more data`);
+          options.log(
+            "trace",
+            `[${uuid}]: Got domain name length (${hostLength}).`,
+          );
+
+          if (workingBuffer.length < offset + hostLength + 2) {
+            options.log(
+              "trace",
+              `[${uuid}]: Not enough data on buffer: ${
+                offset + hostLength + 2
+              } bytes required, found ${workingBuffer.length} bytes.`,
+            );
             continue; // Wait for domain and port;
           }
 
-          const mode = "domain";
           const host = decoder.decode(
-            workingBuffer.subarray(offset, offset + len),
+            workingBuffer.subarray(offset, offset + hostLength),
           );
-          offset += len;
+          offset += hostLength;
 
           const port = workingBufferView.getUint16(offset, false);
           offset += 2;
 
-          destination = { mode, host, port };
+          destination = { mode: "domain", host, port };
         } else {
-          console.log(`unsupported address`);
+          options.log(
+            "debug",
+            `[${uuid}]: Unsupported address type ${
+              ProtocolAddressType[addressType] || `<unknown:${addressType}>`
+            }.`,
+          );
           sendSocksReply(connection, ProtocolReply.ADDRESS_TYPE_NOT_SUPPORTED);
-          safelyClose(connection);
-          return;
+          return safelyClose(connection);
         }
 
-        console.log(`got destination`, destination);
+        options.log(
+          "trace",
+          `[${uuid}]: Got destination host (${destination.host}) and port (${destination.port}).`,
+        );
 
         workingBuffer = workingBuffer.subarray(offset); // leftover for future (should be empty)
+
+        if (workingBuffer.length) {
+          options.log(
+            "trace",
+            `[${uuid}]: After setup there are still ${workingBuffer.length} bytes in the buffer.`,
+          );
+        }
+
         stage = "stream";
-        console.log(`goto stream`);
         break;
       }
     }
   } catch (err) {
-    console.log(`got error handling initial stages`, err);
+    options.log(
+      "error",
+      `[${uuid}]: Error while handling connection setup, closing.`,
+      err,
+    );
     try {
       sendSocksReply(connection, ProtocolReply.GENERAL_SOCKS_SERVER_FAILURE);
     } catch (e) {
-      console.log(`got error notifying failure`, e);
+      options.log(
+        "trace",
+        `[${uuid}]: Error notifying failure to client, still closing.`,
+        e,
+      );
     } finally {
       safelyClose(connection);
     }
   }
 
-  if (stage !== "stream" || !destination || !workingBuffer) {
-    console.log(`unexpected state`);
-    return;
-  }
+  if (stage !== "stream" || !destination || !workingBuffer) return;
 
-  console.log(`handling stream (remaining bytes ${workingBuffer.length})`);
+  options.log("debug", `[${uuid}]: Setup completed.`);
 
   let connected = false;
-
   let targetConnection: Deno.TcpConn | undefined;
 
   try {
-    console.log(`trying to connect to destination`, destination);
+    options.log("debug", `[${uuid}]: Connecting to destination.`, destination);
 
-    // now try connect to destination
-    // For destinationMode === 'domain', we'll let connect handle resolution (or optionally use a custom dns lookup)
+    // TODO: Implement dns lookup and filtering
+
     targetConnection = await Deno.connect({
       hostname: destination.host,
       port: destination.port,
     });
     connected = true;
+
+    options.log(
+      "trace",
+      `[${uuid}]: Connected to ${targetConnection.remoteAddr.hostname}:${targetConnection.remoteAddr.port} from ${targetConnection.localAddr.hostname}:${targetConnection.localAddr.port}.`,
+    );
 
     sendSocksReply(
       connection,
@@ -396,25 +566,54 @@ async function handleConnection(
       targetConnection.localAddr.port,
     );
 
-    await targetConnection.write(workingBuffer);
+    if (workingBuffer.length) {
+      options.log(
+        "trace",
+        `[${uuid}]: Writing remaining buffer (${workingBuffer.length} bytes).`,
+      );
+      await targetConnection.write(workingBuffer);
+    }
+
+    options.log(
+      "debug",
+      `[${uuid}]: Piping connection.`,
+    );
     await Promise.all([
       connection.readable.pipeTo(targetConnection.writable),
       targetConnection.readable.pipeTo(connection.writable),
     ]).catch((err) => {
       if (!(err instanceof Deno.errors.Interrupted)) {
-        console.log(`got error while piping data`, err);
+        options.log(
+          "error",
+          `[${uuid}]: Error while piping data, closing.`,
+          err,
+        );
       }
     });
   } catch (err) {
+    options.log(
+      "trace",
+      `[${uuid}]: Error while connecting to remote destination, closing.`,
+      err,
+    );
+
     if (!connected) {
-      if (err instanceof Deno.errors.ConnectionRefused) {
-        sendSocksReply(connection, ProtocolReply.CONNECTION_REFUSED);
-      } else if (err instanceof Deno.errors.NetworkUnreachable) {
-        sendSocksReply(connection, ProtocolReply.NETWORK_UNREACHABLE);
-      } else {
-        sendSocksReply(
-          connection,
-          ProtocolReply.GENERAL_SOCKS_SERVER_FAILURE,
+      try {
+        if (err instanceof Deno.errors.ConnectionRefused) {
+          sendSocksReply(connection, ProtocolReply.CONNECTION_REFUSED);
+        } else if (err instanceof Deno.errors.NetworkUnreachable) {
+          sendSocksReply(connection, ProtocolReply.NETWORK_UNREACHABLE);
+        } else {
+          sendSocksReply(
+            connection,
+            ProtocolReply.GENERAL_SOCKS_SERVER_FAILURE,
+          );
+        }
+      } catch (e) {
+        options.log(
+          "trace",
+          `[${uuid}]: Error notifying failure to client, still closing.`,
+          e,
         );
       }
     }
@@ -424,44 +623,51 @@ async function handleConnection(
   }
 }
 
-export type AuthenticationOptions =
-  | { enabled: false }
-  | {
-    enabled: true;
-    required: boolean;
-    validate: (
-      username: string,
-      password: string,
-    ) => boolean | Promise<boolean>;
-  };
-
 export type CreateSocks5ServerOptions = {
   listen: Deno.TcpListenOptions;
-  auth: AuthenticationOptions;
+  auth:
+    | { enabled: false }
+    | {
+      enabled: true;
+      required: boolean;
+      validate: (
+        username: string,
+        password: string,
+      ) => boolean | Promise<boolean>;
+    };
+  log: (
+    level: "trace" | "debug" | "info" | "error",
+    ...content: unknown[]
+  ) => void;
 };
-export function createSocks5Server(options: CreateSocks5ServerOptions) {
-  console.log(`Starting server`);
+export async function createSocks5Server(options: CreateSocks5ServerOptions) {
   const listener = Deno.listen(options.listen);
 
-  const done = (async () => {
-    console.log(`Waiting for connections`);
-    const allConnections = new Set<ReturnType<typeof handleConnection>>();
-    for await (const connection of listener) {
-      console.log(`Got connection`);
-      const connectionDone = handleConnection(options, connection);
+  // Store all active connections
+  const allConnections = new Set<ReturnType<typeof handleConnection>>();
 
-      allConnections.add(connectionDone);
+  // Listen for new connections
+  for await (const connection of listener) {
+    const uuid = crypto.randomUUID();
+    options.log("debug", `[${uuid}]: New connection`);
+    const connectionDone = handleConnection(options, uuid, connection);
 
-      console.log(`Waiting for connection to complete`);
-      connectionDone
-        .catch((error) => {
-          console.log(`got error while handling client`, error);
-        })
-        .finally(() => allConnections.delete(connectionDone));
-    }
-  })();
+    // Register active connection
+    allConnections.add(connectionDone);
 
-  return done;
+    // Once done deregister active connection
+    connectionDone
+      .catch((error) => {
+        options.log("error", `[${uuid}]: Error while handling client`, error);
+      })
+      .finally(() => {
+        options.log("trace", `[${uuid}]: Removing connection`);
+        allConnections.delete(connectionDone);
+      });
+  }
+
+  // Wait for all pending active connections to complete
+  await Promise.all([...allConnections]);
 }
 
 await createSocks5Server({
@@ -469,4 +675,5 @@ await createSocks5Server({
   auth: {
     enabled: false,
   },
+  log: (level, ...content) => console.log(level, ...content),
 });
