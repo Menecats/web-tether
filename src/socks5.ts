@@ -1,5 +1,43 @@
 import { isIPv4, isIPv6 } from "@std/net/unstable-ip";
 
+const ProtocolVersion = 0x05;
+enum ProtocolMethods {
+  NO_AUTHENTICATION_REQUIRED = 0x00,
+  GSSAPI = 0x01,
+  USERNAME_PASSWORD = 0x02,
+  // IANA_ASSIGNED = 0x03 -> 0x7F,
+  // RESERVED_FOR_PRIVATE_METHODS = 0x80 -> 0xFE,
+  NO_ACCEPTABLE_METHODS = 0xFF,
+}
+enum ProtocolCommand {
+  CONNECT = 0x01,
+  BIND = 0x02,
+  UDP_ASSOCIATE = 0x03,
+}
+enum ProtocolAddressType {
+  IP_V4 = 0x01,
+  DOMAINNAME = 0x03,
+  IP_V6 = 0x04,
+}
+enum ProtocolReply {
+  SUCCEEDED = 0x00,
+  GENERAL_SOCKS_SERVER_FAILURE = 0x01,
+  CONNECTION_NOT_ALLOWED_BY_RULESET = 0x02,
+  NETWORK_UNREACHABLE = 0x03,
+  HOST_UNREACHABLE = 0x04,
+  CONNECTION_REFUSED = 0x05,
+  TTL_EXPIRED = 0x06,
+  COMMAND_NOT_SUPPORTED = 0x07,
+  ADDRESS_TYPE_NOT_SUPPORTED = 0x08,
+  // UNASSIGNED = 0x09 -> 0xFF
+}
+
+const AuthVersion = 0x01;
+enum AuthResult {
+  SUCCESS = 0x00,
+  FAILURE = 0x01,
+}
+
 function concatBuffers(...buffers: Array<Uint8Array | null | undefined>) {
   const length = buffers.reduce((t, b) => t + (b?.length ?? 0), 0);
   const result = new Uint8Array(length);
@@ -15,83 +53,70 @@ function concatBuffers(...buffers: Array<Uint8Array | null | undefined>) {
   return result;
 }
 
+function sendSocksReply(
+  connection: Deno.TcpConn,
+  reply: ProtocolReply,
+  boundAddr = "0.0.0.0",
+  boundPort = 0,
+) {
+  console.log(
+    `sending response to client ${
+      ProtocolReply[reply]
+    }, '${boundAddr}', ${boundPort}`,
+  );
+
+  // build reply: VER, REP, RSV, ATYP, BND.ADDR, BND.PORT
+  let addrBuffer: Uint8Array;
+  let atyp: ProtocolAddressType;
+  if (isIPv4(boundAddr)) {
+    atyp = ProtocolAddressType.IP_V4;
+    addrBuffer = new Uint8Array(boundAddr.split(".").map((o) => parseInt(o)));
+  } else if (isIPv6(boundAddr)) {
+    atyp = ProtocolAddressType.IP_V6;
+    addrBuffer = new Uint8Array(16);
+
+    const addrBufferView = new DataView(addrBuffer.buffer);
+    boundAddr
+      .split(":")
+      .forEach((h, i) => {
+        const value = parseInt(h, 16);
+        addrBufferView.setUint16(
+          i * Uint16Array.BYTES_PER_ELEMENT,
+          value,
+          false,
+        );
+      });
+  } else {
+    atyp = ProtocolAddressType.DOMAINNAME;
+    const hostBuf = new TextEncoder().encode(boundAddr);
+    addrBuffer = concatBuffers(new Uint8Array([hostBuf.length]), hostBuf);
+  }
+
+  const portBuf = new Uint8Array(2);
+  new DataView(portBuf.buffer).setUint16(0, boundPort, false);
+
+  connection.write(concatBuffers(
+    new Uint8Array([ProtocolVersion, reply, 0x00, atyp]),
+    addrBuffer,
+    portBuf,
+  ));
+}
+
+function safelyClose(
+  closeable: { close(): void } | undefined | null,
+) {
+  try {
+    closeable?.close();
+  } catch {
+    // Ignore 'close' errors
+  }
+}
+
 async function handleConnection(
   options: CreateSocks5ServerOptions,
   connection: Deno.TcpConn,
 ) {
   console.log(`Handling connection`);
-
-  function sendSocksReply(
-    repCode: number,
-    boundAddr = "0.0.0.0",
-    boundPort = 0,
-  ) {
-    console.log(
-      `sending response to client ${repCode}, '${boundAddr}', ${boundPort}`,
-    );
-
-    // build reply: VER, REP, RSV, ATYP, BND.ADDR, BND.PORT
-    let addrBuffer;
-    let atyp;
-    if (isIPv4(boundAddr)) {
-      atyp = ATYP_IPV4;
-      addrBuffer = new Uint8Array(boundAddr.split(".").map((o) => parseInt(o)));
-    } else if (isIPv6(boundAddr)) {
-      atyp = ATYP_IPV6;
-      addrBuffer = new Uint8Array(16);
-
-      const addrBufferView = new DataView(addrBuffer.buffer);
-      boundAddr
-        .split(":")
-        .forEach((h, i) => {
-          const value = parseInt(h, 16);
-          addrBufferView.setUint16(
-            i * Uint16Array.BYTES_PER_ELEMENT,
-            value,
-            false,
-          );
-        });
-    } else {
-      atyp = ATYP_DOMAIN;
-      const hostBuf = new TextEncoder().encode(boundAddr);
-      addrBuffer = concatBuffers(new Uint8Array([hostBuf.length]), hostBuf);
-    }
-
-    const portBuf = new Uint8Array(2);
-    new DataView(portBuf.buffer).setUint16(0, boundPort, false);
-
-    const reply = concatBuffers(
-      new Uint8Array([VER, repCode, 0x00, atyp]),
-      addrBuffer,
-      portBuf,
-    );
-    connection.write(reply);
-  }
-
-  // SOCKS5 constants
-  const VER = 0x05;
-  const AUTH_NO = 0x00;
-  const AUTH_USERPASS = 0x02;
-  const AUTH_NO_ACCEPTABLE = 0xff;
-
-  const CMD_CONNECT = 0x01;
-
-  const ATYP_IPV4 = 0x01;
-  const ATYP_DOMAIN = 0x03;
-  const ATYP_IPV6 = 0x04;
-
-  // Reply codes (RFC1928)
-  const REP = {
-    SUCCESS: 0x00,
-    GENERAL_FAILURE: 0x01,
-    NOT_ALLOWED: 0x02,
-    NETWORK_UNREACHABLE: 0x03,
-    HOST_UNREACHABLE: 0x04,
-    CONNECTION_REFUSED: 0x05,
-    TTL_EXPIRED: 0x06,
-    CMD_NOT_SUPPORTED: 0x07,
-    ADDR_TYPE_NOT_SUPPORTED: 0x08,
-  };
 
   type Stage = "handshake" | "auth" | "request" | "stream";
   let stage: Stage = "handshake";
@@ -108,14 +133,7 @@ async function handleConnection(
   try {
     while (true) {
       const length = await connection.read(readBuffer);
-      if (length == null) {
-        console.log(`No more data to read`);
-
-        connection.close();
-        return;
-      }
-
-      console.log(`got data (${length} bytes)`);
+      if (length == null) return safelyClose(connection);
 
       workingBuffer = concatBuffers(
         workingBuffer,
@@ -125,56 +143,44 @@ async function handleConnection(
       const decoder = new TextDecoder();
 
       if (stage === "handshake") {
-        console.log(`handling handshake`);
-        if (workingBuffer.length < 2) {
-          console.log(`need more data`);
-          continue; // need VER + NMETHODS
-        }
+        if (workingBuffer.length < 2) continue; // need VER + NMETHODS
 
         const ver = workingBuffer[0];
         const nmethods = workingBuffer[1];
 
-        console.log(`got version and methods count`, ver, nmethods);
+        if (ver !== ProtocolVersion) return safelyClose(connection);
 
-        if (ver !== VER) {
-          console.log(`invalid version`);
-          connection.close();
-          return;
-        }
-
-        if (workingBuffer.length < 2 + nmethods) {
-          console.log(`need more data`);
-          continue; // wait for full list
-        }
+        if (workingBuffer.length < 2 + nmethods) continue; // wait for full list
 
         const methods = Array.from(workingBuffer.subarray(2, 2 + nmethods));
         workingBuffer = workingBuffer.subarray(2 + nmethods);
 
-        console.log(`got methods`, methods);
+        console.log(`got methods`, methods.map((m) => ProtocolMethods[m]));
 
-        console.log(`handling auth`);
+        let chosen = ProtocolMethods.NO_ACCEPTABLE_METHODS;
+        if (
+          options.auth.enabled &&
+          methods.includes(ProtocolMethods.USERNAME_PASSWORD)
+        ) {
+          chosen = ProtocolMethods.USERNAME_PASSWORD;
+        } else if (
+          (!options.auth.enabled || !options.auth.required) &&
+          methods.includes(ProtocolMethods.NO_AUTHENTICATION_REQUIRED)
+        ) {
+          chosen = ProtocolMethods.NO_AUTHENTICATION_REQUIRED;
+        }
 
-        // TODO: Review auth
-        let chosen = AUTH_NO;
-        if (options.auth.enabled && methods.includes(AUTH_USERPASS)) {
-          console.log(`choosing credentials`);
-          chosen = AUTH_USERPASS;
-        } else if (!methods.includes(AUTH_NO) && chosen === AUTH_NO) {
-          console.log(`unsupported auth`);
+        console.log(`chose ${ProtocolMethods[chosen]}`);
+        connection.write(new Uint8Array([ProtocolVersion, chosen]));
 
-          // no acceptable
-          connection.write(new Uint8Array([VER, AUTH_NO_ACCEPTABLE]));
-          connection.close();
+        if (chosen === ProtocolMethods.NO_ACCEPTABLE_METHODS) {
+          safelyClose(connection);
           return;
         }
-        console.log(`chose ${chosen}`);
-        connection.write(new Uint8Array([VER, chosen]));
 
-        if (chosen === AUTH_USERPASS) {
-          console.log(`goto auth`);
+        if (chosen === ProtocolMethods.USERNAME_PASSWORD) {
           stage = "auth";
         } else {
-          console.log(`goto request`);
           stage = "request";
         }
       }
@@ -189,9 +195,9 @@ async function handleConnection(
 
         const ver = workingBuffer[0];
         console.log(`got auth version`, ver);
-        if (ver !== 0x01) {
+        if (ver !== AuthVersion) {
           console.log(`invalid auth version`);
-          connection.close();
+          safelyClose(connection);
           return;
         }
 
@@ -218,11 +224,17 @@ async function handleConnection(
         workingBuffer = workingBuffer.subarray(2 + ulen + 1 + plen);
 
         console.log(`validating credentials`);
-        const ok = await options.auth.validate(uname, passwd);
-        connection.write(new Uint8Array([0x01, ok ? 0x00 : 0x01]));
+        const ok = options.auth.enabled &&
+          await options.auth.validate(uname, passwd);
+        connection.write(
+          new Uint8Array([
+            AuthVersion,
+            ok ? AuthResult.SUCCESS : AuthResult.FAILURE,
+          ]),
+        );
         if (!ok) {
           console.log(`invalid credentials`);
-          connection.close();
+          safelyClose(connection);
           return;
         }
         console.log(`goto request`);
@@ -239,18 +251,18 @@ async function handleConnection(
         const ver = workingBuffer[0];
         console.log(`got version`, ver);
 
-        if (ver !== VER) {
+        if (ver !== ProtocolVersion) {
           console.log(`unsupported version`);
-          connection.close();
+          safelyClose(connection);
           return;
         }
 
         const cmd = workingBuffer[1];
-        console.log(`got command`, cmd);
-        if (cmd !== CMD_CONNECT) {
+        console.log(`got command`, ProtocolCommand[cmd]);
+        if (cmd !== ProtocolCommand.CONNECT) {
           console.log(`unsupported command`);
-          sendSocksReply(REP.CMD_NOT_SUPPORTED);
-          connection.close();
+          sendSocksReply(connection, ProtocolReply.COMMAND_NOT_SUPPORTED);
+          safelyClose(connection);
           return;
         }
 
@@ -264,7 +276,7 @@ async function handleConnection(
 
         const atyp = workingBuffer[3];
         let offset = 4;
-        if (atyp === ATYP_IPV4) {
+        if (atyp === ProtocolAddressType.IP_V4) {
           console.log(`handling ipv4`);
           if (workingBuffer.length < offset + 4 + 2) {
             console.log(`need more data`);
@@ -283,7 +295,7 @@ async function handleConnection(
           offset += 2;
 
           destination = { mode, host, port };
-        } else if (atyp === ATYP_IPV6) {
+        } else if (atyp === ProtocolAddressType.IP_V6) {
           console.log(`handling ipv6`);
           if (workingBuffer.length < offset + 16 + 2) {
             console.log(`need more data`);
@@ -305,7 +317,7 @@ async function handleConnection(
           offset += 2;
 
           destination = { mode, host, port };
-        } else if (atyp === ATYP_DOMAIN) {
+        } else if (atyp === ProtocolAddressType.DOMAINNAME) {
           console.log(`handling domain`);
           if (workingBuffer.length < offset + 1) {
             console.log(`need more data`);
@@ -331,8 +343,8 @@ async function handleConnection(
           destination = { mode, host, port };
         } else {
           console.log(`unsupported address`);
-          sendSocksReply(REP.ADDR_TYPE_NOT_SUPPORTED);
-          connection.close();
+          sendSocksReply(connection, ProtocolReply.ADDRESS_TYPE_NOT_SUPPORTED);
+          safelyClose(connection);
           return;
         }
 
@@ -347,11 +359,11 @@ async function handleConnection(
   } catch (err) {
     console.log(`got error handling initial stages`, err);
     try {
-      sendSocksReply(REP.GENERAL_FAILURE);
+      sendSocksReply(connection, ProtocolReply.GENERAL_SOCKS_SERVER_FAILURE);
     } catch (e) {
       console.log(`got error notifying failure`, e);
     } finally {
-      connection.close();
+      safelyClose(connection);
     }
   }
 
@@ -364,30 +376,27 @@ async function handleConnection(
 
   let connected = false;
 
+  let targetConnection: Deno.TcpConn | undefined;
+
   try {
     console.log(`trying to connect to destination`, destination);
 
     // now try connect to destination
     // For destinationMode === 'domain', we'll let connect handle resolution (or optionally use a custom dns lookup)
-    const targetConnection = await Deno.connect({
+    targetConnection = await Deno.connect({
       hostname: destination.host,
       port: destination.port,
     });
     connected = true;
 
-    console.log(`connected`);
-
-    console.log("repying");
     sendSocksReply(
-      REP.SUCCESS,
+      connection,
+      ProtocolReply.SUCCEEDED,
       targetConnection.localAddr.hostname,
       targetConnection.localAddr.port,
     );
 
-    console.log(`pushing remaining bytes`);
     await targetConnection.write(workingBuffer);
-
-    console.log(`piping content`);
     await Promise.all([
       connection.readable.pipeTo(targetConnection.writable),
       targetConnection.readable.pipeTo(connection.writable),
@@ -395,49 +404,40 @@ async function handleConnection(
       if (!(err instanceof Deno.errors.Interrupted)) {
         console.log(`got error while piping data`, err);
       }
-    }).finally(() => {
-      try {
-        connection.close();
-      } catch {
-      }
-      try {
-        targetConnection.close();
-      } catch {
-      }
     });
-
-    console.log(`completed`);
   } catch (err) {
-    console.log(`got error while connecting`, err);
-    try {
-      if (!connected) {
-        if (err instanceof Deno.errors.ConnectionRefused) {
-          sendSocksReply(REP.CONNECTION_REFUSED);
-        } else if (err instanceof Deno.errors.NetworkUnreachable) {
-          sendSocksReply(REP.NETWORK_UNREACHABLE);
-        } else {
-          sendSocksReply(REP.GENERAL_FAILURE);
-        }
-      }
-    } finally {
-      try {
-        connection.close();
-      } catch (e) {
-        console.log(`got error notifying failure`, e);
+    if (!connected) {
+      if (err instanceof Deno.errors.ConnectionRefused) {
+        sendSocksReply(connection, ProtocolReply.CONNECTION_REFUSED);
+      } else if (err instanceof Deno.errors.NetworkUnreachable) {
+        sendSocksReply(connection, ProtocolReply.NETWORK_UNREACHABLE);
+      } else {
+        sendSocksReply(
+          connection,
+          ProtocolReply.GENERAL_SOCKS_SERVER_FAILURE,
+        );
       }
     }
+  } finally {
+    safelyClose(targetConnection);
+    safelyClose(connection);
   }
 }
 
-export type CreateSocks5ServerOptions = {
-  listen: Deno.TcpListenOptions;
-  auth: {
-    enabled: boolean;
+export type AuthenticationOptions =
+  | { enabled: false }
+  | {
+    enabled: true;
+    required: boolean;
     validate: (
       username: string,
       password: string,
     ) => boolean | Promise<boolean>;
   };
+
+export type CreateSocks5ServerOptions = {
+  listen: Deno.TcpListenOptions;
+  auth: AuthenticationOptions;
 };
 export function createSocks5Server(options: CreateSocks5ServerOptions) {
   console.log(`Starting server`);
@@ -466,5 +466,7 @@ export function createSocks5Server(options: CreateSocks5ServerOptions) {
 
 await createSocks5Server({
   listen: { port: 1080 },
-  auth: { enabled: false, validate: () => Promise.resolve(false) },
+  auth: {
+    enabled: false,
+  },
 });
