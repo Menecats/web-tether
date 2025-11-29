@@ -1,5 +1,6 @@
 {
   "tasks": {
+    "proxy": "deno run --allow-net src/socks5.ts",
     "proxy:dev": "deno run --watch --allow-net src/socks5.ts"
   },
   "imports": {

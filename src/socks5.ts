@@ -129,6 +129,12 @@ async function handleConnection(
     const decoder = new TextDecoder();
 
     while (true) {
+      if (options.signal.aborted) {
+        options.log("trace", `[${uuid}]: Listener is aborted, closing.`);
+        safelyClose(connection);
+        return;
+      }
+
       options.log("trace", `[${uuid}]: Reading data from connection.`);
 
       const length = await connection.read(readBuffer);
@@ -536,6 +542,12 @@ async function handleConnection(
     }
   }
 
+  if (options.signal.aborted) {
+    options.log("trace", `[${uuid}]: Listener is aborted, closing.`);
+    safelyClose(connection);
+    return;
+  }
+
   if (stage !== "stream" || !destination || !workingBuffer) return;
 
   options.log("debug", `[${uuid}]: Setup completed.`);
@@ -578,18 +590,29 @@ async function handleConnection(
       "debug",
       `[${uuid}]: Piping connection.`,
     );
-    await Promise.all([
-      connection.readable.pipeTo(targetConnection.writable),
-      targetConnection.readable.pipeTo(connection.writable),
-    ]).catch((err) => {
-      if (!(err instanceof Deno.errors.Interrupted)) {
-        options.log(
-          "error",
-          `[${uuid}]: Error while piping data, closing.`,
-          err,
-        );
-      }
-    });
+
+    const closeConnections = () => {
+      safelyClose(targetConnection);
+      safelyClose(connection);
+    };
+    options.signal.addEventListener("abort", closeConnections, { once: true });
+
+    try {
+      await Promise.all([
+        connection.readable.pipeTo(targetConnection.writable),
+        targetConnection.readable.pipeTo(connection.writable),
+      ]).catch((err) => {
+        if (!(err instanceof Deno.errors.Interrupted)) {
+          options.log(
+            "error",
+            `[${uuid}]: Error while piping data, closing.`,
+            err,
+          );
+        }
+      });
+    } finally {
+      options.signal.removeEventListener("abort", closeConnections);
+    }
   } catch (err) {
     options.log(
       "trace",
@@ -639,15 +662,29 @@ export type CreateSocks5ServerOptions = {
     level: "trace" | "debug" | "info" | "error",
     ...content: unknown[]
   ) => void;
+  signal: AbortSignal;
 };
 export async function createSocks5Server(options: CreateSocks5ServerOptions) {
+  if (options.signal.aborted) throw new Error("Signal is already aborted");
+
+  options.log("info", "Starting server");
   const listener = Deno.listen(options.listen);
+
+  const closeListener = () => listener.close();
+  options.signal.addEventListener("abort", closeListener, { once: true });
 
   // Store all active connections
   const allConnections = new Set<ReturnType<typeof handleConnection>>();
 
   // Listen for new connections
+  options.log("info", "Listening for connections");
   for await (const connection of listener) {
+    if (options.signal.aborted) {
+      options.log("debug", `Got connection in aborted listener, closing.`);
+      safelyClose(connection);
+      break;
+    }
+
     const uuid = crypto.randomUUID();
     options.log("debug", `[${uuid}]: New connection`);
     const connectionDone = handleConnection(options, uuid, connection);
@@ -666,9 +703,18 @@ export async function createSocks5Server(options: CreateSocks5ServerOptions) {
       });
   }
 
+  options.signal.removeEventListener("abort", closeListener);
+
   // Wait for all pending active connections to complete
   await Promise.all([...allConnections]);
 }
+
+const controller = new AbortController();
+
+Deno.addSignalListener("SIGINT", () => {
+  console.log("interrupt");
+  controller.abort();
+});
 
 await createSocks5Server({
   listen: { port: 1080 },
@@ -676,4 +722,5 @@ await createSocks5Server({
     enabled: false,
   },
   log: (level, ...content) => console.log(level, ...content),
+  signal: controller.signal,
 });
