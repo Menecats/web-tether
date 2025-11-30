@@ -1,4 +1,5 @@
-import type { SocksHandler } from "./socks.common.ts";
+import { printEnum } from "../utils.ts";
+import type { SocksDestinationAddress, SocksHandler } from "./socks.common.ts";
 import { CreateSocksServerOptions } from "./socks.server.ts";
 
 export const Socks4Version = 0x04;
@@ -21,7 +22,6 @@ function createResponse(response: Socks4Reply) {
 export async function* handleSocks4(
   options: CreateSocksServerOptions,
   connection: Deno.TcpConn,
-  connectionId: string,
 ): SocksHandler {
   const { socks4 } = options;
   if (!socks4.enabled) return undefined;
@@ -29,18 +29,38 @@ export async function* handleSocks4(
   const { buffer, view } = yield { size: 8 };
 
   const version = view.getUint8(0);
-  if (version !== 0x04) return undefined; // Invalid version
+  options.log("trace", `socks4: got version (${version}).`);
+  if (version !== 0x04) {
+    options.log("trace", `socks4: invalid version.`);
+    return undefined;
+  }
 
   const command = view.getUint8(1);
+  options.log(
+    "trace",
+    `socks4: got command (${printEnum(Socks4Command, command)}).`,
+  );
   if (command !== Socks4Command.CONNECT) {
+    options.log(
+      "trace",
+      `socks4: unsupported command.`,
+    );
     await connection.write(createResponse(Socks4Reply.FAILURE));
     return undefined;
   }
 
   const destinationPort = view.getUint16(2);
+  options.log(
+    "trace",
+    `socks4: got destination port (${destinationPort}).`,
+  );
 
   let destinationMode: "ipv4" | "domain" = "ipv4";
   let destinationHost = buffer.subarray(4).join(".");
+  options.log(
+    "trace",
+    `socks4: got destination host (${destinationHost}).`,
+  );
 
   const decoder = new TextDecoder();
 
@@ -49,15 +69,36 @@ export async function* handleSocks4(
     userIdentifierBuffer.subarray(0, userIdentifierBuffer.length - 1),
   );
 
+  options.log(
+    "trace",
+    `socks4: got user identifier.`,
+  );
+
   if (socks4.auth.enabled) {
+    options.log(
+      "trace",
+      `socks4: validating used identifier.`,
+    );
     const result = await socks4.auth.validate(userIdentifier);
+    options.log(
+      "trace",
+      `socks4: validation result (${result}).`,
+    );
     if (result === "no-provider") {
+      options.log(
+        "trace",
+        `socks4: closing.`,
+      );
       await connection.write(
         createResponse(Socks4Reply.USER_REJECTED_NO_PROVIDER),
       );
       return undefined;
     }
     if (result === "no-match") {
+      options.log(
+        "trace",
+        `socks4: closing.`,
+      );
       await connection.write(
         createResponse(Socks4Reply.USER_REJECTED_NO_MATCH),
       );
@@ -66,23 +107,47 @@ export async function* handleSocks4(
   }
 
   if (destinationHost.startsWith("0.0.0.") && destinationHost !== "0.0.0.0") {
+    options.log(
+      "trace",
+      `socks4: detected socks4a usage.`,
+    );
+
     destinationMode = "domain";
     const destinationHostBuffer = (yield { until: 0x00 }).buffer;
     destinationHost = decoder.decode(
       destinationHostBuffer.subarray(0, destinationHostBuffer.length - 1),
     );
+
+    options.log(
+      "trace",
+      `socks4: got socks4a destination host (${destinationHost}).`,
+    );
   }
 
-  const tunnelResponse = await options.tunnel({
+  const destination: SocksDestinationAddress = {
     mode: destinationMode,
     host: destinationHost,
     port: destinationPort,
-  });
+  };
+
+  options.log(
+    "trace",
+    `socks4: creating tunnel (${destination.host}:${destination.port}).`,
+  );
+  const tunnelResponse = await options.tunnel(destination, options.log);
 
   if (tunnelResponse.ok) {
+    options.log(
+      "trace",
+      `socks4: tunnel created successfully.`,
+    );
     await connection.write(createResponse(Socks4Reply.SUCCESS));
     return tunnelResponse.tunnel;
   } else {
+    options.log(
+      "trace",
+      `socks4: error creating tunnel (${tunnelResponse.error}).`,
+    );
     await connection.write(createResponse(Socks4Reply.FAILURE));
     return undefined;
   }

@@ -36,6 +36,7 @@ export type SocksTunnelResponse =
 
 export type SocksTunneler = (
   destination: SocksDestinationAddress,
+  log: Logger,
 ) => Promise<SocksTunnelResponse>;
 
 export type Logger = (

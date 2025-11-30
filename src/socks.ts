@@ -16,17 +16,19 @@ await createSocksServer({
   socks5: { enabled: true, auth: { enabled: false } },
 
   log: (level, ...content) => console.log(level, ...content),
-  tunnel: async (destination) => {
-    console.log("connecting to ", destination);
-
+  tunnel: async (destination, log) => {
     try {
-      return {
-        ok: true,
-        tunnel: await Deno.connect({
-          hostname: destination.host,
-          port: destination.port,
-        }),
-      };
+      const tunnel = await Deno.connect({
+        hostname: destination.host,
+        port: destination.port,
+      });
+
+      log(
+        "trace",
+        `Connected to ${tunnel.remoteAddr.hostname}:${tunnel.remoteAddr.port} from ${tunnel.localAddr.hostname}:${tunnel.localAddr.port}.`,
+      );
+
+      return { ok: true, tunnel };
     } catch (err) {
       let error: SocksTunnelError;
       if (err instanceof Deno.errors.ConnectionRefused) {

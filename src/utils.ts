@@ -24,3 +24,13 @@ export function safelyClose(
     // Ignore 'close' errors
   }
 }
+
+export function printEnum<
+  T extends number,
+  E extends Record<number, string>,
+>(
+  e: E,
+  k: T,
+) {
+  return e[k] || `<unknown:${k}>`;
+}

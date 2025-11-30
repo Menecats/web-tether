@@ -50,7 +50,7 @@ export type CreateSocksServerOptions = {
   tunnel: SocksTunneler;
 };
 export async function createSocksServer(options: CreateSocksServerOptions) {
-  if (options.signal.aborted) throw new Error("Already aborted");
+  if (options.signal.aborted) return;
 
   options.log("info", "Starting server");
   const listener = Deno.listen(options.listen);
@@ -71,8 +71,14 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
     }
 
     const connectionId = crypto.randomUUID();
-    options.log("debug", `[${connectionId}]: New connection`);
-    const connectionDone = handleConnection(options, connection, connectionId);
+    const connectionLog: Logger = (level, ...content) =>
+      options.log(level, `[${connectionId}]:`, ...content);
+
+    connectionLog("debug", `New connection.`);
+    const connectionDone = handleConnection(
+      { ...options, log: connectionLog },
+      connection,
+    );
 
     // Register active connection
     allConnections.add(connectionDone);
@@ -80,14 +86,14 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
     // Once done deregister active connection
     connectionDone
       .catch((error) => {
-        options.log(
+        connectionLog(
           "error",
-          `[${connectionId}]: Error while handling client`,
+          `Error while handling connection.`,
           error,
         );
       })
       .finally(() => {
-        options.log("trace", `[${connectionId}]: Removing connection`);
+        connectionLog("trace", `Purging connection.`);
         allConnections.delete(connectionDone);
       });
   }
@@ -101,19 +107,17 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
 async function handleConnection(
   options: CreateSocksServerOptions,
   connection: Deno.TcpConn,
-  connectionId: string,
 ) {
   const readBuffer = new Uint8Array(256);
 
   let workingBuffer: Uint8Array | undefined;
   let bufferRequest: SocksHandlerBufferRequest = { size: 0 };
 
-  options.log("trace", `[${connectionId}]: Creating protocol manager`);
+  options.log("debug", `Creating protocol manager`);
 
-  const protocolManager = handleProtocolSelection(
+  const protocolManager = handleProtocol(
     options,
     connection,
-    connectionId,
   );
 
   let tunnel: SocksTunnel | undefined;
@@ -122,12 +126,16 @@ async function handleConnection(
     handshake:
     while (true) {
       if (options.signal.aborted) {
-        protocolManager.return(undefined);
+        options.log("trace", `Listener is aborted, closing.`);
+        await protocolManager.return(undefined);
         break handshake;
       }
 
       const length = await connection.read(readBuffer);
-      if (length == null) return safelyClose(connection);
+      if (length == null) {
+        options.log("debug", `End of stream reached, closing.`);
+        return;
+      }
 
       workingBuffer = concatBuffers(
         workingBuffer,
@@ -140,7 +148,8 @@ async function handleConnection(
           : workingBuffer.indexOf(bufferRequest.until) >= 0
       ) {
         if (options.signal.aborted) {
-          protocolManager.return(undefined);
+          options.log("trace", `Listener is aborted, closing.`);
+          await protocolManager.return(undefined);
           break handshake;
         }
 
@@ -174,12 +183,39 @@ async function handleConnection(
     }
 
     if (!options.signal.aborted && tunnel) {
-      if (workingBuffer?.length) await tunnel.write(workingBuffer);
+      if (workingBuffer?.length) {
+        options.log(
+          "trace",
+          `Writing remaining buffer (${workingBuffer.length} bytes).`,
+        );
+        await tunnel.write(workingBuffer);
+      }
 
-      await Promise.all([
-        connection.readable.pipeTo(tunnel.writable),
-        tunnel.readable.pipeTo(connection.writable),
-      ]);
+      options.log("debug", `Piping connection.`);
+
+      const closeConnections = () => {
+        safelyClose(tunnel);
+        safelyClose(connection);
+      };
+      options.signal.addEventListener("abort", closeConnections, {
+        once: true,
+      });
+      try {
+        await Promise.all([
+          connection.readable.pipeTo(tunnel.writable),
+          tunnel.readable.pipeTo(connection.writable),
+        ]).catch((err) => {
+          if (!(err instanceof Deno.errors.Interrupted)) {
+            options.log(
+              "error",
+              `Error while piping data, closing.`,
+              err,
+            );
+          }
+        });
+      } finally {
+        options.signal.removeEventListener("abort", closeConnections);
+      }
     }
   } finally {
     safelyClose(connection);
@@ -187,31 +223,34 @@ async function handleConnection(
   }
 }
 
-async function* handleProtocolSelection(
+async function* handleProtocol(
   options: CreateSocksServerOptions,
   connection: Deno.TcpConn,
-  connectionId: string,
 ): SocksHandler {
+  options.log("trace", `handler: Reading socks version.`);
+
   const { view } = yield { size: 1, doNotConsume: true };
   const version = view.getUint8(0);
 
   if (version === Socks4Version) {
     if (options.socks4.enabled) {
-      return yield* handleSocks4(options, connection, connectionId);
+      options.log("trace", `handler: Delegate socks4 handler.`);
+      return yield* handleSocks4(options, connection);
     } else {
-      // TODO: Socks4 not enabled
+      options.log("trace", `handler: socks4 handler not enabled, closing.`);
       return;
     }
   }
 
   if (version === Socks5Version) {
     if (options.socks5.enabled) {
-      return yield* handleSocks5(options, connection, connectionId);
+      options.log("trace", `handler: Delegate socks5 handler.`);
+      return yield* handleSocks5(options, connection);
     } else {
-      // TODO: Socks5 not enabled
+      options.log("trace", `handler: socks5 handler not enabled, closing.`);
       return;
     }
   }
 
-  // TODO: Unknown protocol version
+  options.log("trace", `handler: version (${version}) not supported.`);
 }
