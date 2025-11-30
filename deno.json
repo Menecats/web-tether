@@ -1,7 +1,7 @@
 {
   "tasks": {
-    "proxy": "deno run --allow-net src/socks.ts",
-    "proxy:dev": "deno run --watch --allow-net src/socks.ts"
+    "proxy": "deno run --allow-net src/proxy.ts",
+    "proxy:dev": "deno run --watch --allow-net src/proxy.ts"
   },
   "imports": {
     "@std/net": "jsr:@std/net@^1.0.6"
