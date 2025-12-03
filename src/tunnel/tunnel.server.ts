@@ -1,4 +1,4 @@
-import { Logger } from "../utils.ts";
+import { Logger } from "../common/utils.ts";
 import { handleSocketRelay } from "./tunnel.relay.ts";
 
 export type CreateTunnelRelayOptions = {

@@ -1,4 +1,4 @@
-import { Logger } from "../utils.ts";
+import { Logger } from "../common/utils.ts";
 
 export type SocksDestinationAddress = {
   mode: "ipv4" | "ipv6" | "domain";

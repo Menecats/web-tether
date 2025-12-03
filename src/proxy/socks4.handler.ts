@@ -1,4 +1,4 @@
-import { printEnum } from "../utils.ts";
+import { printEnum } from "../common/utils.ts";
 import type { SocksDestinationAddress, SocksHandler } from "./socks.common.ts";
 import { CreateSocksServerOptions } from "./socks.server.ts";
 

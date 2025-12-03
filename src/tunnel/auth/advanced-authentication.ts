@@ -1,4 +1,4 @@
-import { assertEnabled, randomWait } from "../../utils.ts";
+import { assertEnabled, randomWait } from "../../common/utils.ts";
 import { RelayAuthentication, RelayVersion7 } from "../tunnel.const.ts";
 import type { RelayHandler, RelayPacket } from "../tunnel.relay.ts";
 import { createSecurity } from "../tunnel.security.ts";

@@ -1,4 +1,4 @@
-import { pbkdf2Hash512 } from "../utils.ts";
+import { pbkdf2Hash512 } from "../common/utils.ts";
 
 console.log(new Uint8Array(
   await pbkdf2Hash512(

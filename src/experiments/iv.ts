@@ -1,4 +1,4 @@
-import { encodeIV } from "../utils.ts";
+import { encodeIV } from "../common/utils.ts";
 
 console.log("server");
 console.log("0x" + encodeIV("server", 1n).toHex());

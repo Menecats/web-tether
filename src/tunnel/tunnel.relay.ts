@@ -1,5 +1,5 @@
 import { delay } from "@std/async";
-import { consumableAsyncQueue, safelyClose } from "../utils.ts";
+import { consumableAsyncQueue, safelyClose } from "../common/utils.ts";
 import { handleAdvencedAuthenticationMode } from "./auth/advanced-authentication.ts";
 import { handleBasicAuthenticationMode } from "./auth/basic-authentication.ts";
 import type { CreateTunnelRelayOptions } from "./tunnel.server.ts";

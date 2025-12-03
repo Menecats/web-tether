@@ -1,4 +1,4 @@
-import { encodeIV } from "../utils.ts";
+import { encodeIV } from "../common/utils.ts";
 
 export type RelaySecurity = {
   encrypt: (
