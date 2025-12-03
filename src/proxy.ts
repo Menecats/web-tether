@@ -15,7 +15,8 @@ await createSocksServer({
   socks4: { enabled: true, auth: { enabled: false } },
   socks5: { enabled: true, auth: { enabled: false } },
 
-  log: (level, ...content) => console.log(level, ...content),
+  log: (level, ...content) =>
+    level !== "trace" && level !== "debug" && console.log(level, ...content),
   tunnel: async (destination, log) => {
     try {
       const tunnel = await Deno.connect({

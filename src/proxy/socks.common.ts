@@ -1,3 +1,5 @@
+import { Logger } from "../utils.ts";
+
 export type SocksDestinationAddress = {
   mode: "ipv4" | "ipv6" | "domain";
   host: string;
@@ -38,8 +40,3 @@ export type SocksTunneler = (
   destination: SocksDestinationAddress,
   log: Logger,
 ) => Promise<SocksTunnelResponse>;
-
-export type Logger = (
-  level: "trace" | "debug" | "info" | "error",
-  ...content: unknown[]
-) => void;

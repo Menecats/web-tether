@@ -1,15 +1,25 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/async@^1.0.15": "1.0.15",
+    "jsr:@std/crypto@^1.0.5": "1.0.5",
     "jsr:@std/net@^1.0.6": "1.0.6"
   },
   "jsr": {
+    "@std/async@1.0.15": {
+      "integrity": "55d1d9d04f99403fe5730ab16bdcc3c47f658a6bf054cafb38a50f046238116e"
+    },
+    "@std/crypto@1.0.5": {
+      "integrity": "0dcfbb319fe0bba1bd3af904ceb4f948cde1b92979ec1614528380ed308a3b40"
+    },
     "@std/net@1.0.6": {
       "integrity": "110735f93e95bb9feb95790a8b1d1bf69ec0dc74f3f97a00a76ea5efea25500c"
     }
   },
   "workspace": {
     "dependencies": [
+      "jsr:@std/async@^1.0.15",
+      "jsr:@std/crypto@^1.0.5",
       "jsr:@std/net@^1.0.6"
     ]
   }

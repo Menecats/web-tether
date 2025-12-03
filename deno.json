@@ -4,6 +4,8 @@
     "proxy:dev": "deno run --watch --allow-net src/proxy.ts"
   },
   "imports": {
+    "@std/async": "jsr:@std/async@^1.0.15",
+    "@std/crypto": "jsr:@std/crypto@^1.0.5",
     "@std/net": "jsr:@std/net@^1.0.6"
   }
 }

@@ -1,6 +1,5 @@
-import { concatBuffers, safelyClose } from "../utils.ts";
+import { concatBuffers, Logger, safelyClose } from "../utils.ts";
 import {
-  Logger,
   SocksHandler,
   SocksHandlerBufferRequest,
   SocksTunnel,
