@@ -1,7 +1,11 @@
-import { assertEnabled, concatBuffers, randomWait } from "../../common/utils.ts";
+import {
+  assertEnabled,
+  concatBuffers,
+  randomWait,
+} from "../../common/utils.ts";
 import { RelayAuthentication, RelayVersion7 } from "../tunnel.const.ts";
 import type { RelayHandler, RelayPacket } from "../tunnel.relay.ts";
-import { createSecurity } from "../tunnel.security.ts";
+import { createTunnelSecurity } from "../tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
 
 const instanceMockSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -109,7 +113,11 @@ export async function* handleBasicAuthenticationMode(
   const encryptedResponse = yield { timeout: 1000 };
   await randomWait(100, 500);
 
-  const security = createSecurity("server", sessionKey);
+  const security = createTunnelSecurity(
+    "relay",
+    sessionKey,
+    lookup.permissions,
+  );
 
   try {
     const decryptedResponse = new Uint8Array(

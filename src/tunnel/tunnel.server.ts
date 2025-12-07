@@ -1,5 +1,6 @@
 import { Logger } from "../common/utils.ts";
-import { handleSocketRelay } from "./tunnel.relay.ts";
+import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
+import { TunnelSecurityPermissions } from "./tunnel.security.ts";
 
 export type CreateTunnelRelayOptions = {
   listen: { port: number; hostname: string };
@@ -15,7 +16,11 @@ export type CreateTunnelRelayOptions = {
         lookup: (
           identifier: string,
         ) => Promise<
-          | { salt: Uint8Array<ArrayBuffer>; hash: Uint8Array<ArrayBuffer> }
+          | {
+            salt: Uint8Array<ArrayBuffer>;
+            hash: Uint8Array<ArrayBuffer>;
+            permissions: TunnelSecurityPermissions;
+          }
           | undefined
         >;
       };
@@ -27,7 +32,12 @@ export type CreateTunnelRelayOptions = {
         lookupPrivateKey: () => Promise<CryptoKey>;
         lookupPublicKey: (
           identifier: Uint8Array<ArrayBuffer>,
-        ) => Promise<CryptoKey | undefined>;
+        ) => Promise<
+          {
+            publicKey: CryptoKey;
+            permissions: TunnelSecurityPermissions;
+          } | undefined
+        >;
       };
   };
 
@@ -58,6 +68,8 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
     ) => Response | Promise<Response>;
   };
 
+  const relay = createRelay();
+
   const relayRoutes: RelayRoute[] = [
     {
       pattern: new URLPattern("/admin"),
@@ -79,6 +91,7 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         const socketDone = handleSocketRelay(
           { ...options, log: socketLog },
           socket,
+          relay,
         );
 
         // Register active connection

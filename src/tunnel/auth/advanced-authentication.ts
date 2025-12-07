@@ -1,7 +1,7 @@
 import { assertEnabled, randomWait } from "../../common/utils.ts";
 import { RelayAuthentication, RelayVersion7 } from "../tunnel.const.ts";
 import type { RelayHandler, RelayPacket } from "../tunnel.relay.ts";
-import { createSecurity } from "../tunnel.security.ts";
+import { createTunnelSecurity, noPermissions } from "../tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
 
 async function deriveRawSecret(
@@ -60,10 +60,10 @@ export async function* handleAdvencedAuthenticationMode(
   ]);
   const sessionChallenge = crypto.getRandomValues(new Uint8Array(16));
 
-  const remotePublicKey = await options.auth.advanced.lookupPublicKey(
+  const lookup = await options.auth.advanced.lookupPublicKey(
     identifier,
   );
-  if (!remotePublicKey) {
+  if (!lookup) {
     // Fake authentication to prevent key identification
 
     const mockSharedSecret = crypto.getRandomValues(new Uint8Array(256));
@@ -75,7 +75,11 @@ export async function* handleAdvencedAuthenticationMode(
       sessionInfo,
     );
 
-    const mockSecurity = createSecurity("server", mockSessionKey);
+    const mockSecurity = createTunnelSecurity(
+      "relay",
+      mockSessionKey,
+      noPermissions(),
+    );
 
     const mockEncryptedChallenge = new Uint8Array(
       await mockSecurity.encrypt(sessionChallenge),
@@ -108,7 +112,7 @@ export async function* handleAdvencedAuthenticationMode(
 
   const sharedSecret = await deriveRawSecret(
     await options.auth.advanced.lookupPrivateKey(),
-    remotePublicKey,
+    lookup.publicKey,
   );
   await randomWait(50, 100);
 
@@ -118,7 +122,11 @@ export async function* handleAdvencedAuthenticationMode(
     sessionInfo,
   );
 
-  const security = createSecurity("server", sessionKey);
+  const security = createTunnelSecurity(
+    "relay",
+    sessionKey,
+    lookup.permissions,
+  );
 
   const encryptedChallenge = new Uint8Array(
     await security.encrypt(sessionChallenge),
