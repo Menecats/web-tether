@@ -112,7 +112,7 @@ Deno.bench({
     await deriveSecretRaw(privateA, publicB);
   },
   warmup: 100,
-  n: 100000
+  n: 100000,
 });
 
 const hkdfSalt = crypto.getRandomValues(new Uint8Array(16));

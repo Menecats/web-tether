@@ -42,7 +42,7 @@ export function printEnum<
   return e[k] || `<unknown:${k}>`;
 }
 
-export type ConsumableAsyncQueue<Input, Output> = Disposable & {
+export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
   disposed: () => boolean;
 
   queued: () => number;
