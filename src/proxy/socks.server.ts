@@ -1,5 +1,7 @@
+import { delay } from "@std/async";
 import { concatBuffers, Logger, safelyClose } from "../common/utils.ts";
 import {
+  SOCKS_HANDSHAKE_INIT_TIMEOUT,
   SocksHandler,
   SocksHandlerBufferRequest,
   SocksTunnel,
@@ -58,7 +60,7 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
   options.signal.addEventListener("abort", closeListener, { once: true });
 
   // Store all active connections
-  const allConnections = new Set<ReturnType<typeof handleConnection>>();
+  const allConnections = new Set<ReturnType<typeof handleSocksConnection>>();
 
   // Listen for new connections
   options.log("info", "Listening for connections");
@@ -74,7 +76,7 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
       options.log(level, `[${connectionId}]:`, ...content);
 
     connectionLog("debug", `New connection.`);
-    const connectionDone = handleConnection(
+    const connectionDone = handleSocksConnection(
       { ...options, log: connectionLog },
       connection,
     );
@@ -103,20 +105,20 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
   await Promise.all([...allConnections]);
 }
 
-async function handleConnection(
+export async function handleSocksConnection(
   options: CreateSocksServerOptions,
-  connection: Deno.TcpConn,
+  connection: SocksTunnel,
 ) {
-  const readBuffer = new Uint8Array(256);
-
-  let workingBuffer: Uint8Array | undefined;
-  let bufferRequest: SocksHandlerBufferRequest = { size: 0 };
+  let workingBuffer = new Uint8Array(0);
+  let bufferRequest: SocksHandlerBufferRequest = { timeout: 0, size: 0 };
 
   options.log("debug", `Creating protocol manager`);
 
+  const hashshakeReader = connection.readable.getReader();
+  const handshakeWriter = connection.writable.getWriter();
   const protocolManager = handleProtocol(
     options,
-    connection,
+    handshakeWriter,
   );
 
   let tunnel: SocksTunnel | undefined;
@@ -124,23 +126,6 @@ async function handleConnection(
   try {
     handshake:
     while (true) {
-      if (options.signal.aborted) {
-        options.log("trace", `Listener is aborted, closing.`);
-        await protocolManager.return(undefined);
-        break handshake;
-      }
-
-      const length = await connection.read(readBuffer);
-      if (length == null) {
-        options.log("debug", `End of stream reached, closing.`);
-        return;
-      }
-
-      workingBuffer = concatBuffers(
-        workingBuffer,
-        readBuffer.subarray(0, length),
-      );
-
       while (
         ("size" in bufferRequest)
           ? bufferRequest.size <= workingBuffer.length
@@ -179,7 +164,38 @@ async function handleConnection(
 
         bufferRequest = result.value;
       }
+
+      if (options.signal.aborted) {
+        options.log("trace", `Listener is aborted, closing.`);
+        await protocolManager.return(undefined);
+        break handshake;
+      }
+
+      const readBuffer = await Promise.race([
+        hashshakeReader.read(),
+        delay(bufferRequest.timeout, {
+          persistent: false,
+          signal: options.signal,
+        }).catch(() => {
+          throw "interrupted";
+        }).then(() => {
+          options.log("debug", `Buffer request timed-out.`);
+          throw "timeout";
+        }),
+      ]);
+      if (readBuffer.done) {
+        options.log("debug", `End of stream reached, closing.`);
+        return;
+      }
+
+      workingBuffer = concatBuffers(
+        workingBuffer,
+        readBuffer.value,
+      );
     }
+
+    hashshakeReader.releaseLock();
+    handshakeWriter.releaseLock();
 
     if (!options.signal.aborted && tunnel) {
       if (workingBuffer?.length) {
@@ -187,7 +203,10 @@ async function handleConnection(
           "trace",
           `Writing remaining buffer (${workingBuffer.length} bytes).`,
         );
-        await tunnel.write(workingBuffer);
+
+        const remainingBytesWriter = tunnel.writable.getWriter();
+        await remainingBytesWriter.write(workingBuffer);
+        remainingBytesWriter.releaseLock();
       }
 
       options.log("debug", `Piping connection.`);
@@ -224,17 +243,21 @@ async function handleConnection(
 
 async function* handleProtocol(
   options: CreateSocksServerOptions,
-  connection: Deno.TcpConn,
+  writer: { write: (buffer: Uint8Array) => Promise<void> },
 ): SocksHandler {
   options.log("trace", `handler: Reading socks version.`);
 
-  const { view } = yield { size: 1, doNotConsume: true };
+  const { view } = yield {
+    timeout: SOCKS_HANDSHAKE_INIT_TIMEOUT,
+    size: 1,
+    doNotConsume: true,
+  };
   const version = view.getUint8(0);
 
   if (version === Socks4Version) {
     if (options.socks4.enabled) {
       options.log("trace", `handler: Delegate socks4 handler.`);
-      return yield* handleSocks4(options, connection);
+      return yield* handleSocks4(options, writer);
     } else {
       options.log("trace", `handler: socks4 handler not enabled, closing.`);
       return;
@@ -244,7 +267,7 @@ async function* handleProtocol(
   if (version === Socks5Version) {
     if (options.socks5.enabled) {
       options.log("trace", `handler: Delegate socks5 handler.`);
-      return yield* handleSocks5(options, connection);
+      return yield* handleSocks5(options, writer);
     } else {
       options.log("trace", `handler: socks5 handler not enabled, closing.`);
       return;

@@ -1,5 +1,13 @@
 import { printEnum } from "../common/utils.ts";
-import { SocksDestinationAddress, SocksHandler } from "./socks.common.ts";
+import {
+  SOCKS_AUTH_INIT_TIMEOUT,
+  SOCKS_AUTH_TIMEOUT,
+  SOCKS_HANDSHAKE_TIMEOUT,
+  SOCKS_REQUEST_INIT_TIMEOUT,
+  SOCKS_REQUEST_TIMEOUT,
+  SocksDestinationAddress,
+  SocksHandler,
+} from "./socks.common.ts";
 import { CreateSocksServerOptions } from "./socks.server.ts";
 
 export const Socks5Version = 0x05;
@@ -60,14 +68,17 @@ function createResponse(reply: Socks5Reply) {
 
 export async function* handleSocks5(
   options: CreateSocksServerOptions,
-  connection: Deno.TcpConn,
+  writer: { write: (buffer: Uint8Array) => Promise<void> },
 ): SocksHandler {
   const { socks5 } = options;
   if (!socks5.enabled) return;
 
   options.log("trace", `socks5: stage 'handshake'.`);
 
-  const { buffer: [version, methodsCount] } = yield { size: 2 };
+  const { buffer: [version, methodsCount] } = yield {
+    timeout: SOCKS_HANDSHAKE_TIMEOUT,
+    size: 2,
+  };
 
   options.log(
     "trace",
@@ -80,7 +91,7 @@ export async function* handleSocks5(
   }
 
   const availableAuthenticationMethods = Array.from(
-    (yield { size: methodsCount }).buffer,
+    (yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, size: methodsCount }).buffer,
   );
 
   options.log(
@@ -123,7 +134,7 @@ export async function* handleSocks5(
     }.`,
   );
 
-  await connection.write(
+  await writer.write(
     new Uint8Array([Socks5Version, chosenAuthenticationMethod]),
   );
 
@@ -142,6 +153,7 @@ export async function* handleSocks5(
     options.log("trace", `socks5: stage 'auth'.`);
 
     const { buffer: [authenticationVersion, usernameLength] } = yield {
+      timeout: SOCKS_AUTH_INIT_TIMEOUT,
       size: 2,
     };
     options.log(
@@ -156,11 +168,16 @@ export async function* handleSocks5(
       return;
     }
 
-    const username = decoder.decode((yield { size: usernameLength }).buffer);
+    const username = decoder.decode(
+      (yield { timeout: SOCKS_AUTH_TIMEOUT, size: usernameLength }).buffer,
+    );
     options.log("trace", `socks5: got username.`);
-    const passwordLength = (yield { size: 1 }).buffer[0];
+    const passwordLength =
+      (yield { timeout: SOCKS_AUTH_TIMEOUT, size: 1 }).buffer[0];
     options.log("trace", `socks5: got password length.`);
-    const password = decoder.decode((yield { size: passwordLength }).buffer);
+    const password = decoder.decode(
+      (yield { timeout: SOCKS_AUTH_TIMEOUT, size: passwordLength }).buffer,
+    );
     options.log("trace", `socks5: got password.`);
 
     options.log("trace", `socks5: validating credentials.`);
@@ -176,7 +193,7 @@ export async function* handleSocks5(
       }.`,
     );
 
-    await connection.write(
+    await writer.write(
       new Uint8Array([Socks5AuthVersion, authenticationResult]),
     );
     if (authenticationResult !== Socks5AuthResult.SUCCESS) {
@@ -191,6 +208,7 @@ export async function* handleSocks5(
   options.log("trace", `socks5: stage 'request'.`);
 
   const { buffer: [requestVersion, command, , addressType] } = yield {
+    timeout: SOCKS_REQUEST_INIT_TIMEOUT,
     size: 4,
   };
 
@@ -208,7 +226,7 @@ export async function* handleSocks5(
 
   if (command !== Socks5Command.CONNECT) {
     options.log("debug", `socks5: unsupported command.`);
-    await connection.write(createResponse(Socks5Reply.COMMAND_NOT_SUPPORTED));
+    await writer.write(createResponse(Socks5Reply.COMMAND_NOT_SUPPORTED));
     return;
   }
 
@@ -219,35 +237,46 @@ export async function* handleSocks5(
   if (addressType === Socks5AddressType.IP_V4) {
     options.log("trace", `socks5: parsing IPv4 address.`);
 
-    const host = Array.from((yield { size: 4 }).buffer).join(".");
-    const port = (yield { size: 2 }).view.getUint16(0);
+    const host = Array.from(
+      (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 4 }).buffer,
+    ).join(".");
+    const port = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 2 }).view
+      .getUint16(0);
 
     destination = { mode: "ipv4", host, port };
   } else if (addressType === Socks5AddressType.IP_V6) {
     options.log("trace", `socks5: parsing IPv6 address.`);
 
-    const { view: address } = yield { size: 16 };
+    const { view: address } = yield {
+      timeout: SOCKS_REQUEST_TIMEOUT,
+      size: 16,
+    };
     const parts = [];
     for (let i = 0; i < 16; i += 2) {
       parts.push(address.getUint16(i).toString(16));
     }
 
     const host = parts.join(":");
-    const port = (yield { size: 2 }).view.getUint16(0);
+    const port = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 2 }).view
+      .getUint16(0);
 
     destination = { mode: "ipv6", host, port };
   } else if (addressType === Socks5AddressType.DOMAINNAME) {
     options.log("trace", `socks5: parsing domain name.`);
 
-    const hostLength = (yield { size: 1 }).buffer[0];
+    const hostLength =
+      (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 1 }).buffer[0];
     options.log("trace", `socks5: got domain name length (${hostLength}).`);
-    const host = decoder.decode((yield { size: hostLength }).buffer);
-    const port = (yield { size: 2 }).view.getUint16(0);
+    const host = decoder.decode(
+      (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: hostLength }).buffer,
+    );
+    const port = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 2 }).view
+      .getUint16(0);
 
     destination = { mode: "domain", host, port };
   } else {
     options.log("debug", `socks5: unsupported address type.`);
-    await connection.write(
+    await writer.write(
       createResponse(Socks5Reply.ADDRESS_TYPE_NOT_SUPPORTED),
     );
     return;
@@ -264,7 +293,7 @@ export async function* handleSocks5(
       "trace",
       `socks5: tunnel created successfully.`,
     );
-    await connection.write(createResponse(Socks5Reply.SUCCEEDED));
+    await writer.write(createResponse(Socks5Reply.SUCCEEDED));
     return tunnelResponse.tunnel;
   } else {
     options.log(
@@ -292,7 +321,7 @@ export async function* handleSocks5(
         reply = Socks5Reply.GENERAL_SOCKS_SERVER_FAILURE;
         break;
     }
-    await connection.write(createResponse(reply));
+    await writer.write(createResponse(reply));
     return undefined;
   }
 }

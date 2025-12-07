@@ -1,5 +1,9 @@
 import { printEnum } from "../common/utils.ts";
-import type { SocksDestinationAddress, SocksHandler } from "./socks.common.ts";
+import {
+  SOCKS_HANDSHAKE_TIMEOUT,
+  type SocksDestinationAddress,
+  type SocksHandler,
+} from "./socks.common.ts";
 import { CreateSocksServerOptions } from "./socks.server.ts";
 
 export const Socks4Version = 0x04;
@@ -21,12 +25,12 @@ function createResponse(response: Socks4Reply) {
 
 export async function* handleSocks4(
   options: CreateSocksServerOptions,
-  connection: Deno.TcpConn,
+  writer: { write: (buffer: Uint8Array) => Promise<void> },
 ): SocksHandler {
   const { socks4 } = options;
   if (!socks4.enabled) return undefined;
 
-  const { buffer, view } = yield { size: 8 };
+  const { buffer, view } = yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, size: 8 };
 
   const version = view.getUint8(0);
   options.log("trace", `socks4: got version (${version}).`);
@@ -45,7 +49,7 @@ export async function* handleSocks4(
       "trace",
       `socks4: unsupported command.`,
     );
-    await connection.write(createResponse(Socks4Reply.FAILURE));
+    await writer.write(createResponse(Socks4Reply.FAILURE));
     return undefined;
   }
 
@@ -64,7 +68,8 @@ export async function* handleSocks4(
 
   const decoder = new TextDecoder();
 
-  const userIdentifierBuffer = (yield { until: 0x00 }).buffer;
+  const userIdentifierBuffer =
+    (yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, until: 0x00 }).buffer;
   const userIdentifier = decoder.decode(
     userIdentifierBuffer.subarray(0, userIdentifierBuffer.length - 1),
   );
@@ -89,7 +94,7 @@ export async function* handleSocks4(
         "trace",
         `socks4: closing.`,
       );
-      await connection.write(
+      await writer.write(
         createResponse(Socks4Reply.USER_REJECTED_NO_PROVIDER),
       );
       return undefined;
@@ -99,7 +104,7 @@ export async function* handleSocks4(
         "trace",
         `socks4: closing.`,
       );
-      await connection.write(
+      await writer.write(
         createResponse(Socks4Reply.USER_REJECTED_NO_MATCH),
       );
       return undefined;
@@ -113,7 +118,8 @@ export async function* handleSocks4(
     );
 
     destinationMode = "domain";
-    const destinationHostBuffer = (yield { until: 0x00 }).buffer;
+    const destinationHostBuffer =
+      (yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, until: 0x00 }).buffer;
     destinationHost = decoder.decode(
       destinationHostBuffer.subarray(0, destinationHostBuffer.length - 1),
     );
@@ -141,14 +147,14 @@ export async function* handleSocks4(
       "trace",
       `socks4: tunnel created successfully.`,
     );
-    await connection.write(createResponse(Socks4Reply.SUCCESS));
+    await writer.write(createResponse(Socks4Reply.SUCCESS));
     return tunnelResponse.tunnel;
   } else {
     options.log(
       "trace",
       `socks4: error creating tunnel (${tunnelResponse.error}).`,
     );
-    await connection.write(createResponse(Socks4Reply.FAILURE));
+    await writer.write(createResponse(Socks4Reply.FAILURE));
     return undefined;
   }
 }

@@ -7,8 +7,8 @@ export type SocksDestinationAddress = {
 };
 
 export type SocksHandlerBufferRequest =
-  | { size: number; doNotConsume?: true }
-  | { until: number; doNotConsume?: true };
+  | { timeout: number; size: number; doNotConsume?: true }
+  | { timeout: number; until: number; doNotConsume?: true };
 export type SocksHandlerBufferResponse = { buffer: Uint8Array; view: DataView };
 
 export type SocksHandler = AsyncGenerator<
@@ -20,7 +20,6 @@ export type SocksHandler = AsyncGenerator<
 export type SocksTunnel = {
   close(): void;
 
-  write(p: Uint8Array): Promise<number>;
   readonly readable: ReadableStream<Uint8Array<ArrayBuffer>>;
   readonly writable: WritableStream<Uint8Array<ArrayBufferLike>>;
 };
@@ -40,3 +39,10 @@ export type SocksTunneler = (
   destination: SocksDestinationAddress,
   log: Logger,
 ) => Promise<SocksTunnelResponse>;
+
+export const SOCKS_HANDSHAKE_INIT_TIMEOUT = 10000;
+export const SOCKS_HANDSHAKE_TIMEOUT = 100;
+export const SOCKS_AUTH_INIT_TIMEOUT = 10000;
+export const SOCKS_AUTH_TIMEOUT = 100;
+export const SOCKS_REQUEST_INIT_TIMEOUT = 10000;
+export const SOCKS_REQUEST_TIMEOUT = 10000;
