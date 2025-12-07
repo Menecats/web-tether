@@ -1,4 +1,4 @@
-import { delay } from "@std/async";
+import { deadline } from "@std/async";
 import { consumableAsyncQueue, safelyClose } from "../common/utils.ts";
 import { handleAdvencedAuthenticationMode } from "./auth/advanced-authentication.ts";
 import { handleBasicAuthenticationMode } from "./auth/basic-authentication.ts";
@@ -226,17 +226,11 @@ export async function handleSocketRelay(
         buffer = new ArrayBuffer(0);
       } else {
         try {
-          buffer = await Promise.race([
-            queue.shift(),
-            delay(request.timeout, {
-              persistent: false,
-              signal: options.signal,
-            }).catch(() => {
-              throw "interrupted"; // TODO
-            }).then(() => {
-              throw "timed-out"; // TODO
-            }),
-          ]);
+          buffer = await deadline(queue.shift(), request.timeout, {
+            signal: options.signal,
+          }).catch(() => {
+            throw "interrupted"; // TODO
+          });
         } catch (err) {
           await relayHandler.throw(err);
           return;

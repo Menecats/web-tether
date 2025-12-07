@@ -1,4 +1,4 @@
-import { delay } from "@std/async";
+import { deadline } from "@std/async";
 import { concatBuffers, Logger, safelyClose } from "../common/utils.ts";
 import {
   SOCKS_HANDSHAKE_INIT_TIMEOUT,
@@ -171,18 +171,16 @@ export async function handleSocksConnection(
         break handshake;
       }
 
-      const readBuffer = await Promise.race([
+      const readBuffer = await deadline(
         hashshakeReader.read(),
-        delay(bufferRequest.timeout, {
-          persistent: false,
+        bufferRequest.timeout,
+        {
           signal: options.signal,
-        }).catch(() => {
-          throw "interrupted";
-        }).then(() => {
-          options.log("debug", `Buffer request timed-out.`);
-          throw "timeout";
-        }),
-      ]);
+        },
+      ).catch((err) => {
+        options.log("debug", `Buffer request interrupted.`, err);
+        throw err;
+      });
       if (readBuffer.done) {
         options.log("debug", `End of stream reached, closing.`);
         return;
