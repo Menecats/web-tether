@@ -72,14 +72,14 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
 
   const relayRoutes: RelayRoute[] = [
     {
-      pattern: new URLPattern("/admin"),
+      pattern: new URLPattern({ pathname: "/admin" }),
       handle: () => {
         // TODO
         return json({ todo: true });
       },
     },
     {
-      pattern: new URLPattern("/relay"),
+      pattern: new URLPattern({ pathname: "/relay" }),
       handle: (request) => {
         const { socket, response } = Deno.upgradeWebSocket(request);
 
