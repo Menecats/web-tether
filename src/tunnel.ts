@@ -1,3 +1,4 @@
+import { createLogger } from "./common/log.ts";
 import { pbkdf2Hash512 } from "./common/security.ts";
 import { TunnelSecurityPermissions } from "./tunnel/tunnel.security.ts";
 import { createTunnelRelay } from "./tunnel/tunnel.server.ts";
@@ -56,7 +57,6 @@ await createTunnelRelay({
     advanced: { enabled: false },
     queueSize: 1024,
   },
-  log: (level, ...content) =>
-    level !== "trace" && level !== "debug" && console.log(level, ...content),
+  log: createLogger((level, content) => console.log(level, ...content)),
   signal: controller.signal,
 });

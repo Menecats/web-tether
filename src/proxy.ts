@@ -1,3 +1,4 @@
+import { createLogger } from "./common/log.ts";
 import { SocksTunnelError } from "./proxy/socks.common.ts";
 import { createSocksServer } from "./proxy/socks.server.ts";
 
@@ -15,8 +16,7 @@ await createSocksServer({
   socks4: { enabled: true, auth: { enabled: false } },
   socks5: { enabled: true, auth: { enabled: false } },
 
-  log: (level, ...content) =>
-    level !== "trace" && level !== "debug" && console.log(level, ...content),
+  log: createLogger((level, content) => console.log(level, ...content)),
   tunnel: async (destination, log) => {
     try {
       const tunnel = await Deno.connect({
@@ -24,8 +24,7 @@ await createSocksServer({
         port: destination.port,
       });
 
-      log(
-        "trace",
+      log.trace(
         `Connected to ${tunnel.remoteAddr.hostname}:${tunnel.remoteAddr.port} from ${tunnel.localAddr.hostname}:${tunnel.localAddr.port}.`,
       );
 

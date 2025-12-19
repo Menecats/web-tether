@@ -1,5 +1,5 @@
 import { deadline } from "@std/async";
-import { Logger } from "../common/log.ts";
+import { Logger, prefixLogger } from "../common/log.ts";
 import { concatBuffers, safelyClose } from "../common/utils.ts";
 import {
   SOCKS_HANDSHAKE_INIT_TIMEOUT,
@@ -54,7 +54,7 @@ export type CreateSocksServerOptions = {
 export async function createSocksServer(options: CreateSocksServerOptions) {
   if (options.signal.aborted) return;
 
-  options.log("info", "Starting server");
+  options.log.info("Starting server");
   const listener = Deno.listen(options.listen);
 
   const closeListener = () => listener.close();
@@ -64,19 +64,21 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
   const allConnections = new Set<ReturnType<typeof handleSocksConnection>>();
 
   // Listen for new connections
-  options.log("info", "Listening for connections");
+  options.log.info("Listening for connections");
   for await (const connection of listener) {
     if (options.signal.aborted) {
-      options.log("debug", `Got connection in aborted listener, closing.`);
+      options.log.debug(`Got connection in aborted listener, closing.`);
       safelyClose(connection);
       break;
     }
 
     const connectionId = crypto.randomUUID();
-    const connectionLog: Logger = (level, ...content) =>
-      options.log(level, `[${connectionId}]:`, ...content);
+    const connectionLog: Logger = prefixLogger(
+      options.log,
+      `[${connectionId}]:`,
+    );
 
-    connectionLog("debug", `New connection.`);
+    connectionLog.debug(`New connection.`);
     const connectionDone = handleSocksConnection(
       { ...options, log: connectionLog },
       connection,
@@ -88,14 +90,13 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
     // Once done deregister active connection
     connectionDone
       .catch((error) => {
-        connectionLog(
-          "error",
+        connectionLog.error(
           `Error while handling connection.`,
           error,
         );
       })
       .finally(() => {
-        connectionLog("trace", `Purging connection.`);
+        connectionLog.trace(`Purging connection.`);
         allConnections.delete(connectionDone);
       });
   }
@@ -113,7 +114,7 @@ export async function handleSocksConnection(
   let workingBuffer = new Uint8Array(0);
   let bufferRequest: SocksHandlerBufferRequest = { timeout: 0, size: 0 };
 
-  options.log("debug", `Creating protocol manager`);
+  options.log.debug(`Creating protocol manager`);
 
   const hashshakeReader = connection.readable.getReader();
   const handshakeWriter = connection.writable.getWriter();
@@ -133,7 +134,7 @@ export async function handleSocksConnection(
           : workingBuffer.indexOf(bufferRequest.until) >= 0
       ) {
         if (options.signal.aborted) {
-          options.log("trace", `Listener is aborted, closing.`);
+          options.log.trace(`Listener is aborted, closing.`);
           await protocolManager.return(undefined);
           break handshake;
         }
@@ -167,7 +168,7 @@ export async function handleSocksConnection(
       }
 
       if (options.signal.aborted) {
-        options.log("trace", `Listener is aborted, closing.`);
+        options.log.trace(`Listener is aborted, closing.`);
         await protocolManager.return(undefined);
         break handshake;
       }
@@ -179,11 +180,11 @@ export async function handleSocksConnection(
           signal: options.signal,
         },
       ).catch((err) => {
-        options.log("debug", `Buffer request interrupted.`, err);
+        options.log.debug(`Buffer request interrupted.`, err);
         throw err;
       });
       if (readBuffer.done) {
-        options.log("debug", `End of stream reached, closing.`);
+        options.log.debug(`End of stream reached, closing.`);
         return;
       }
 
@@ -198,8 +199,7 @@ export async function handleSocksConnection(
 
     if (!options.signal.aborted && tunnel) {
       if (workingBuffer?.length) {
-        options.log(
-          "trace",
+        options.log.trace(
           `Writing remaining buffer (${workingBuffer.length} bytes).`,
         );
 
@@ -208,7 +208,7 @@ export async function handleSocksConnection(
         remainingBytesWriter.releaseLock();
       }
 
-      options.log("debug", `Piping connection.`);
+      options.log.trace(`Piping connection.`);
 
       const closeConnections = () => {
         safelyClose(tunnel);
@@ -223,8 +223,7 @@ export async function handleSocksConnection(
           tunnel.readable.pipeTo(connection.writable),
         ]).catch((err) => {
           if (!(err instanceof Deno.errors.Interrupted)) {
-            options.log(
-              "error",
+            options.log.error(
               `Error while piping data, closing.`,
               err,
             );
@@ -244,7 +243,7 @@ async function* handleProtocol(
   options: CreateSocksServerOptions,
   writer: { write: (buffer: Uint8Array) => Promise<void> },
 ): SocksHandler {
-  options.log("trace", `handler: Reading socks version.`);
+  options.log.trace(`handler: Reading socks version.`);
 
   const { view } = yield {
     timeout: SOCKS_HANDSHAKE_INIT_TIMEOUT,
@@ -255,23 +254,23 @@ async function* handleProtocol(
 
   if (version === Socks4Version) {
     if (options.socks4.enabled) {
-      options.log("trace", `handler: Delegate socks4 handler.`);
+      options.log.trace(`handler: Delegate socks4 handler.`);
       return yield* handleSocks4(options, writer);
     } else {
-      options.log("trace", `handler: socks4 handler not enabled, closing.`);
+      options.log.trace(`handler: socks4 handler not enabled, closing.`);
       return;
     }
   }
 
   if (version === Socks5Version) {
     if (options.socks5.enabled) {
-      options.log("trace", `handler: Delegate socks5 handler.`);
+      options.log.trace(`handler: Delegate socks5 handler.`);
       return yield* handleSocks5(options, writer);
     } else {
-      options.log("trace", `handler: socks5 handler not enabled, closing.`);
+      options.log.trace(`handler: socks5 handler not enabled, closing.`);
       return;
     }
   }
 
-  options.log("trace", `handler: version (${version}) not supported.`);
+  options.log.trace(`handler: version (${version}) not supported.`);
 }

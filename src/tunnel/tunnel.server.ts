@@ -1,4 +1,4 @@
-import { Logger } from "../common/log.ts";
+import { Logger, prefixLogger } from "../common/log.ts";
 import { verifyCryptoKeyPair } from "../common/security.ts";
 import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
 import { TunnelSecurityPermissions } from "./tunnel.security.ts";
@@ -87,10 +87,9 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         const { socket, response } = Deno.upgradeWebSocket(request);
 
         const socketId = crypto.randomUUID();
-        const socketLog: Logger = (level, ...content) =>
-          options.log(level, `[${socketId}]:`, ...content);
+        const socketLog: Logger = prefixLogger(options.log, `[${socketId}]:`);
 
-        socketLog("debug", `New socket.`);
+        socketLog.debug(`New socket.`);
         const socketDone = handleSocketRelay(
           { ...options, log: socketLog },
           socket,
@@ -103,14 +102,13 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         // Once done deregister active connection
         socketDone
           .catch((error) => {
-            socketLog(
-              "error",
+            socketLog.error(
               `Error while handling socket.`,
               error,
             );
           })
           .finally(() => {
-            socketLog("trace", `Purging socket.`);
+            socketLog.trace(`Purging socket.`);
             allSockets.delete(socketDone);
           });
 
@@ -129,8 +127,7 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         try {
           return route.handle(request, result);
         } catch (err) {
-          options.log(
-            "error",
+          options.log.error(
             `Error while handling request '${request.url}'`,
             err,
           );
