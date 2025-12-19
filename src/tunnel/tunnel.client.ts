@@ -1,6 +1,7 @@
 import { delay } from "@std/async/delay";
+import { Logger } from "../common/log.ts";
 import { verifyCryptoKeyPair } from "../common/security.ts";
-import { consumableAsyncQueue, Logger } from "../common/utils.ts";
+import { consumableAsyncQueue } from "../common/utils.ts";
 import { handleAdvancedAuthenticationClient } from "./auth/client/advanced-authentication.client.ts";
 import { handleBasicAuthenticationClient } from "./auth/client/basic-authentication.client.ts";
 

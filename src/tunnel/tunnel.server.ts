@@ -1,5 +1,5 @@
+import { Logger } from "../common/log.ts";
 import { verifyCryptoKeyPair } from "../common/security.ts";
-import { Logger } from "../common/utils.ts";
 import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
 import { TunnelSecurityPermissions } from "./tunnel.security.ts";
 

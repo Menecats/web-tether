@@ -1,10 +1,5 @@
 import { delay } from "@std/async";
 
-export type Logger = (
-  level: "trace" | "debug" | "info" | "error",
-  ...content: unknown[]
-) => void;
-
 export function concatBuffers(
   ...buffers: Array<Uint8Array | null | undefined>
 ) {

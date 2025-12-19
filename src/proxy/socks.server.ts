@@ -1,5 +1,6 @@
 import { deadline } from "@std/async";
-import { concatBuffers, Logger, safelyClose } from "../common/utils.ts";
+import { Logger } from "../common/log.ts";
+import { concatBuffers, safelyClose } from "../common/utils.ts";
 import {
   SOCKS_HANDSHAKE_INIT_TIMEOUT,
   SocksHandler,
