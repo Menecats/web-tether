@@ -1,44 +1,32 @@
-import {
-  assertEnabled,
-  concatBuffers,
-  randomWait,
-} from "../../common/utils.ts";
-import { RelayAuthentication, RelayVersion7 } from "../tunnel.const.ts";
-import type { RelayHandler, RelayPacket } from "../tunnel.relay.ts";
-import { createTunnelSecurity } from "../tunnel.security.ts";
-import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
+import { safeReadWithLength8 } from "../../../common/safe-buffer.ts";
+import { concatBuffers, randomWait } from "../../../common/utils.ts";
+import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
+import type { RelayHandler, RelayPacket } from "../../tunnel.relay.ts";
+import { createTunnelSecurity } from "../../tunnel.security.ts";
+import type { CreateTunnelRelayOptions } from "../../tunnel.server.ts";
 
 const instanceMockSalt = crypto.getRandomValues(new Uint8Array(16));
 
-export async function* handleBasicAuthenticationMode(
-  options: CreateTunnelRelayOptions,
+export async function* handleBasicAuthenticationServer(
+  auth: CreateTunnelRelayOptions["auth"]["basic"] & { enabled: true },
   socket: WebSocket,
   { buffer }: RelayPacket,
 ): RelayHandler {
-  assertEnabled(options.auth.basic);
-
   const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
 
-  let offset = 0;
-
-  const identifierLength = buffer[offset];
-  offset += 1;
-
-  const identifier = decoder.decode(
-    // TODO: Check out of bound read
-    buffer.subarray(offset, offset + identifierLength),
+  const [identifier] = safeReadWithLength8(
+    buffer,
+    () => new Error("not enough buffer"), // TODO
   );
-  offset += identifierLength;
 
-  const lookup = await options.auth.basic.lookup(identifier);
+  const lookup = await auth.lookup(decoder.decode(identifier));
   if (!lookup) {
     // Fake authentication to prevent user identifier
 
     const mockSalt = new Uint8Array(
       await crypto.subtle.digest(
         { name: "MD5" },
-        concatBuffers(instanceMockSalt, encoder.encode(identifier)),
+        concatBuffers(instanceMockSalt, identifier),
       ),
     );
     const mockIV = crypto.getRandomValues(new Uint8Array(16));

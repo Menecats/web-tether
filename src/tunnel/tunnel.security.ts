@@ -8,12 +8,19 @@ export type TunnelSecurityPermissions = {
     | { enabled: false }
     | { enabled: true; allowed: (service: string) => Promise<boolean> };
 };
-export type TunnelSecurity = {
-  readonly role: TunnelSecurityRole;
-  readonly permissions: TunnelSecurityPermissions;
+export type TunnelSecurity<Role extends TunnelSecurityRole> = {
+  readonly role: Role;
+  readonly permissions: Role extends "relay" ? TunnelSecurityPermissions
+    : undefined;
 
-  encrypt(plaintext: BufferSource, signal?: AbortSignal): Promise<ArrayBuffer>;
-  decrypt(ciphertext: BufferSource, signal?: AbortSignal): Promise<ArrayBuffer>;
+  encrypt(
+    plaintext: BufferSource,
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer>;
+  decrypt(
+    ciphertext: BufferSource,
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer>;
 };
 
 export function encodeIV(role: TunnelSecurityRole, counter: bigint) {
@@ -38,10 +45,19 @@ export function noPermissions(): TunnelSecurityPermissions {
 }
 
 export function createTunnelSecurity(
-  localRole: TunnelSecurityRole,
+  localRole: "client",
+  key: CryptoKey,
+): TunnelSecurity<"client">;
+export function createTunnelSecurity(
+  localRole: "relay",
   key: CryptoKey,
   permissions: TunnelSecurityPermissions,
-): TunnelSecurity {
+): TunnelSecurity<"relay">;
+export function createTunnelSecurity<Role extends TunnelSecurityRole>(
+  localRole: Role,
+  key: CryptoKey,
+  permissions?: TunnelSecurity<Role>["permissions"],
+): TunnelSecurity<Role> {
   const remoteRole = localRole === "relay" ? "client" : "relay";
 
   let localCounter = 0n;
@@ -49,7 +65,7 @@ export function createTunnelSecurity(
 
   return {
     role: localRole,
-    permissions: permissions,
+    permissions: permissions as TunnelSecurity<Role>["permissions"],
 
     decrypt(chiphertext) {
       return crypto.subtle.decrypt(

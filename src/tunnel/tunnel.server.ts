@@ -1,3 +1,4 @@
+import { verifyCryptoKeyPair } from "../common/security.ts";
 import { Logger } from "../common/utils.ts";
 import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
 import { TunnelSecurityPermissions } from "./tunnel.security.ts";
@@ -29,15 +30,10 @@ export type CreateTunnelRelayOptions = {
       | { enabled: false }
       | {
         enabled: true;
-        lookupPrivateKey: () => Promise<CryptoKey>;
-        lookupPublicKey: (
-          identifier: Uint8Array<ArrayBuffer>,
-        ) => Promise<
-          {
-            publicKey: CryptoKey;
-            permissions: TunnelSecurityPermissions;
-          } | undefined
-        >;
+        serverKeys: CryptoKeyPair;
+        validateClientPublicKey: (
+          keyHash: Uint8Array<ArrayBuffer>,
+        ) => Promise<TunnelSecurityPermissions | undefined>;
       };
   };
 
@@ -45,6 +41,13 @@ export type CreateTunnelRelayOptions = {
 };
 export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
   if (options.signal.aborted) return;
+
+  if (options.auth.advanced.enabled) {
+    const valid = await verifyCryptoKeyPair(
+      options.auth.advanced.serverKeys,
+    );
+    if (!valid) throw new Error("Invalid keys error"); // TODO
+  }
 
   const allSockets = new Set<ReturnType<typeof handleSocketRelay>>();
 

@@ -43,7 +43,10 @@ export function printEnum<
 }
 
 export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
-  disposed: () => boolean;
+  aborted: () => boolean;
+
+  abortWith: (reason: unknown) => void;
+  abortReason: () => unknown;
 
   queued: () => number;
   waitFor: (event: "enqueue" | "dequeue") => Promise<void>;
@@ -77,23 +80,32 @@ export function consumableAsyncQueue<Input, Output>(
 
   const abortController = new AbortController();
 
-  return {
-    disposed: () => abortController.signal.aborted,
-    [Symbol.dispose]: () => {
+  let abortReason: unknown = undefined;
+
+  const queue = {
+    aborted: () => abortController.signal.aborted,
+    abortWith: (reason) => {
+      abortReason = reason;
       abortController.abort();
 
       queued = 0;
       pending.length = 0;
 
-      waiting.forEach((w) => w.reject());
+      waiting.forEach((w) => w.reject(reason));
       waiting.length = 0;
 
-      enqueueListeners.forEach((l) => l.reject());
+      enqueueListeners.forEach((l) => l.reject(reason));
       enqueueListeners.length = 0;
 
-      dequeueListeners.forEach((l) => l.reject());
+      dequeueListeners.forEach((l) => l.reject(reason));
       dequeueListeners.length = 0;
     },
+    abortReason: () => {
+      if (!queue.aborted()) throw new Error("Queue not aborted");
+      return abortReason;
+    },
+
+    [Symbol.dispose]: () => queue.abortWith(undefined),
 
     queued: () => queued,
     waitFor: (event) => {
@@ -143,7 +155,7 @@ export function consumableAsyncQueue<Input, Output>(
         });
     },
     shift: () => {
-      if (abortController.signal.aborted) return Promise.reject();
+      if (abortController.signal.aborted) return Promise.reject(abortReason);
 
       if (pending.length) {
         dequeueListeners.forEach((l) => l.resolve());
@@ -160,31 +172,9 @@ export function consumableAsyncQueue<Input, Output>(
       waiting.push(wait);
       return wait.promise;
     },
-  };
-}
+  } satisfies ConsumableAsyncQueue<Input, Output>;
 
-export async function pbkdf2Hash512(
-  plaintext: Uint8Array<ArrayBuffer>,
-  salt: Uint8Array<ArrayBuffer>,
-) {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    plaintext,
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"],
-  );
-  const derivedBits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      salt,
-      iterations: 200_000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    256,
-  );
-  return derivedBits;
+  return queue;
 }
 
 export function assertEnabled<T extends { enabled: boolean }>(

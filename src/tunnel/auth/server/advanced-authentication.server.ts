@@ -1,57 +1,33 @@
-import { assertEnabled, randomWait } from "../../common/utils.ts";
-import { RelayAuthentication, RelayVersion7 } from "../tunnel.const.ts";
-import type { RelayHandler, RelayPacket } from "../tunnel.relay.ts";
-import { createTunnelSecurity, noPermissions } from "../tunnel.security.ts";
-import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
+import { safeReadWithLength16 } from "../../../common/safe-buffer.ts";
+import {
+  deriveRawSecret,
+  deriveSessionKey,
+  hashCryptoKey,
+} from "../../../common/security.ts";
+import { randomWait } from "../../../common/utils.ts";
+import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
+import type { RelayHandler, RelayPacket } from "../../tunnel.relay.ts";
+import { createTunnelSecurity, noPermissions } from "../../tunnel.security.ts";
+import type { CreateTunnelRelayOptions } from "../../tunnel.server.ts";
 
-async function deriveRawSecret(
-  localPrivateKey: CryptoKey,
-  remotePublicKey: CryptoKey,
-) {
-  return await crypto.subtle.deriveBits(
-    { name: "ECDH", public: remotePublicKey },
-    localPrivateKey,
-    256,
-  );
-}
-
-async function deriveSessionKey(
-  rawSecret: BufferSource,
-  salt: BufferSource,
-  info: BufferSource,
-) {
-  const ikmKey = await crypto.subtle.importKey(
-    "raw",
-    rawSecret,
-    { name: "HKDF" },
-    false,
-    ["deriveKey", "deriveBits"],
-  );
-
-  return await crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt, info },
-    ikmKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
-export async function* handleAdvencedAuthenticationMode(
-  options: CreateTunnelRelayOptions,
+export async function* handleAdvencedAuthenticationServer(
+  auth: CreateTunnelRelayOptions["auth"]["advanced"] & { enabled: true },
   socket: WebSocket,
-  { buffer, view }: RelayPacket,
+  { buffer }: RelayPacket,
 ): RelayHandler {
-  assertEnabled(options.auth.advanced);
+  const [rawClientKey] = safeReadWithLength16(
+    buffer,
+    () => new Error("not enough buffer"), // TODO: Error
+  );
 
-  let offset = 0;
-
-  const identifierLength = view.getUint16(offset);
-  offset += 2;
-
-  // TODO: Check out of bound read
-  const identifier = buffer.subarray(offset, offset + identifierLength);
-  offset += identifierLength;
+  const clientKey = await crypto.subtle.importKey(
+    "raw",
+    rawClientKey,
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    [],
+  );
+  const clientKeyHash = new Uint8Array(await hashCryptoKey(clientKey));
 
   const sessionSalt = crypto.getRandomValues(new Uint8Array(16));
   const sessionInfo = new Uint8Array([
@@ -60,10 +36,8 @@ export async function* handleAdvencedAuthenticationMode(
   ]);
   const sessionChallenge = crypto.getRandomValues(new Uint8Array(16));
 
-  const lookup = await options.auth.advanced.lookupPublicKey(
-    identifier,
-  );
-  if (!lookup) {
+  const clientPermissions = await auth.validateClientPublicKey(clientKeyHash);
+  if (!clientPermissions) {
     // Fake authentication to prevent key identification
 
     const mockSharedSecret = crypto.getRandomValues(new Uint8Array(256));
@@ -111,8 +85,8 @@ export async function* handleAdvencedAuthenticationMode(
   }
 
   const sharedSecret = await deriveRawSecret(
-    await options.auth.advanced.lookupPrivateKey(),
-    lookup.publicKey,
+    auth.serverKeys.privateKey,
+    clientKey,
   );
   await randomWait(50, 100);
 
@@ -122,11 +96,7 @@ export async function* handleAdvencedAuthenticationMode(
     sessionInfo,
   );
 
-  const security = createTunnelSecurity(
-    "relay",
-    sessionKey,
-    lookup.permissions,
-  );
+  const security = createTunnelSecurity("relay", sessionKey, clientPermissions);
 
   const encryptedChallenge = new Uint8Array(
     await security.encrypt(sessionChallenge),
@@ -163,11 +133,8 @@ export async function* handleAdvencedAuthenticationMode(
 
     let invalid = false;
     for (let i = 0; i < sessionChallenge.length; ++i) {
-      // Check that challenge is successfully reversed
-      if (
-        sessionChallenge[i] !==
-          decryptedResponse[2 + (sessionChallenge.length - i - 1)]
-      ) invalid = true;
+      // Check that challenge matches
+      if (sessionChallenge[i] !== decryptedResponse[2 + i]) invalid = true;
     }
 
     if (invalid) throw "invalid";

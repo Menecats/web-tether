@@ -1,7 +1,13 @@
 import { deadline } from "@std/async";
+import {
+  safeReadUint16,
+  safeReadUint32,
+  safeReadUint8,
+  safeReadWithLength16,
+} from "../common/safe-buffer.ts";
 import { consumableAsyncQueue, safelyClose } from "../common/utils.ts";
-import { handleAdvencedAuthenticationMode } from "./auth/advanced-authentication.ts";
-import { handleBasicAuthenticationMode } from "./auth/basic-authentication.ts";
+import { handleAdvencedAuthenticationServer } from "./auth/server/advanced-authentication.server.ts";
+import { handleBasicAuthenticationServer } from "./auth/server/basic-authentication.server.ts";
 import { RelayAuthentication, RelayVersion7 } from "./tunnel.const.ts";
 import { TunnelSecurity } from "./tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "./tunnel.server.ts";
@@ -11,7 +17,7 @@ export type RelayPacket = { buffer: Uint8Array<ArrayBuffer>; view: DataView };
 
 export type RelayHandler = AsyncGenerator<
   RelayRequest,
-  TunnelSecurity | undefined,
+  TunnelSecurity<"relay"> | undefined,
   RelayPacket
 >;
 
@@ -105,8 +111,8 @@ async function* authenticateRelay(
 
   if (authMode === RelayAuthentication.BASIC_AUTH) {
     if (options.auth.basic.enabled) {
-      return yield* handleBasicAuthenticationMode(
-        options,
+      return yield* handleBasicAuthenticationServer(
+        options.auth.basic,
         socket,
         authPacket,
       );
@@ -123,8 +129,8 @@ async function* authenticateRelay(
 
   if (authMode === RelayAuthentication.ADVANCED_AUTH) {
     if (options.auth.advanced.enabled) {
-      return yield* handleAdvencedAuthenticationMode(
-        options,
+      return yield* handleAdvencedAuthenticationServer(
+        options.auth.advanced,
         socket,
         authPacket,
       );
@@ -193,14 +199,13 @@ export async function handleSocketRelay(
 
     socket.binaryType = "arraybuffer";
     socket.onmessage = ({ data }) => {
-      if (!(data instanceof ArrayBuffer)) return queue[Symbol.dispose]();
-
-      queue.push(data);
+      if (data instanceof ArrayBuffer) queue.push(data);
     };
 
     // Wait for socket to open
     const opened = Promise.withResolvers<void>();
-    socket.onopen = () => queue.disposed() ? opened.reject() : opened.resolve();
+    socket.onopen = () =>
+      queue.aborted() ? opened.reject(queue.abortReason()) : opened.resolve();
     socket.onclose = () => opened.reject();
     socket.onerror = () => opened.reject();
     await opened.promise;
@@ -213,7 +218,7 @@ export async function handleSocketRelay(
     const relayHandler = authenticateRelay(options, socket);
 
     let request: RelayRequest | undefined;
-    let security: TunnelSecurity | undefined;
+    let security: TunnelSecurity<"relay"> | undefined;
 
     while (true) {
       if (options.signal.aborted) {
@@ -282,7 +287,13 @@ export async function handleSocketRelay(
       const view = new DataView(buffer.buffer);
 
       let offset = 0;
-      const command = buffer[offset++];
+
+      const [command, commandLength] = safeReadUint8(
+        buffer.subarray(offset),
+        () => new Error("not enough buffer"), // TODO
+      );
+      offset += commandLength;
+
       switch (command) {
         case RelayCommand.SOCKET_CLOSE: {
           socket.send(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
@@ -313,8 +324,11 @@ export async function handleSocketRelay(
           }
           serviceBound = true;
 
-          const servicesCount = view.getUint16(offset);
-          offset += 2;
+          const [servicesCount, servicesCountLength] = safeReadUint16(
+            buffer.subarray(offset),
+            () => new Error("not enough length"),
+          );
+          offset += servicesCountLength;
 
           let someUnavailable = false;
           let someUnauthorized = false;
@@ -323,16 +337,19 @@ export async function handleSocketRelay(
           const services: RelayService[] = [];
 
           for (let i = 0; i < servicesCount; ++i) {
-            const serviceType = view.getUint8(offset);
-            offset += 1;
+            const [serviceType, serviceTypeLength] = safeReadUint8(
+              buffer.subarray(offset),
+              () => new Error("not enough length"), // TODO
+            );
+            offset += serviceTypeLength;
 
-            const serviceLength = view.getUint16(offset);
-            offset += 2;
-
-            const serviceName = decoder.decode(
-              buffer.subarray(offset, offset + serviceLength),
+            const [service, serviceLength] = safeReadWithLength16(
+              buffer.subarray(offset),
+              () => new Error("not enough length"),
             );
             offset += serviceLength;
+
+            const serviceName = decoder.decode(service);
 
             if (!(serviceType in RelayServiceType)) {
               someInvalidService = true;
@@ -395,9 +412,12 @@ export async function handleSocketRelay(
         }
 
         case RelayCommand.SERVICE_CONNECT: {
-          const uid = view.getInt32(offset);
-          const encodedUID = buffer.subarray(offset, offset + 4);
-          offset += 4;
+          const [uid, uidLength] = safeReadUint32(
+            buffer.subarray(offset),
+            () => new Error("not enough buffer"), // TODO
+          );
+          const encodedUID = buffer.subarray(offset, offset + uidLength);
+          offset += uidLength;
 
           if (!security.permissions.connect.enabled) {
             socket.send(
@@ -423,8 +443,11 @@ export async function handleSocketRelay(
             else break;
           }
 
-          const serviceType = view.getUint8(offset);
-          offset += 1;
+          const [serviceType, serviceTypeLength] = safeReadUint8(
+            buffer.subarray(offset),
+            () => new Error("not enough buffer"), // TODO
+          );
+          offset += serviceTypeLength;
 
           if (!(serviceType in RelayServiceType)) {
             socket.send(
@@ -438,13 +461,13 @@ export async function handleSocketRelay(
             else break;
           }
 
-          const serviceLength = view.getUint16(offset);
-          offset += 2;
-
-          const serviceName = decoder.decode(
-            buffer.subarray(offset, offset + serviceLength),
+          const [service, serviceLength] = safeReadWithLength16(
+            buffer.subarray(offset),
+            () => new Error("not enough buffer"), // TODO
           );
           offset += serviceLength;
+
+          const serviceName = decoder.decode(service);
 
           const allowed = await security.permissions.connect.allowed(
             serviceName,
@@ -492,8 +515,11 @@ export async function handleSocketRelay(
         }
 
         case RelayCommand.SERVICE_STREAM: {
-          const uid = view.getInt32(offset);
-          offset += 4;
+          const [uid, uidLength] = safeReadUint32(
+            buffer.subarray(offset),
+            () => new Error("not enough buffer"), // TODO
+          );
+          offset += uidLength;
 
           const connection = relay.connection(socket, uid);
           if (!connection) {
@@ -511,17 +537,24 @@ export async function handleSocketRelay(
         }
 
         case RelayCommand.SERVICE_CLOSED: {
-          const uid = view.getInt32(offset);
-          offset += 4;
+          const [uid, uidLength] = safeReadUint32(
+            buffer.subarray(offset),
+            () => new Error("not enough buffer"), // TODO
+          );
+          offset += uidLength;
 
-          const reason = buffer[offset++];
+          const [reason, reasonLength] = safeReadUint8(
+            buffer.subarray(offset),
+            () => new Error("not enough buffer"), // TODO
+          );
+          offset += reasonLength;
 
           relay.connection(socket, uid)?.close(socket, reason);
           break;
         }
 
         default: {
-          socket.send(new Uint8Array([RelayCommand.UNSUPPORTED]));
+          socket.send(new Uint8Array([RelayCommand.UNSUPPORTED, command]));
           if (isBlockingFailure("unsupported-command")) return;
           else break;
         }

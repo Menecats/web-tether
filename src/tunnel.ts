@@ -1,4 +1,4 @@
-import { pbkdf2Hash512 } from "./common/utils.ts";
+import { pbkdf2Hash512 } from "./common/security.ts";
 import { TunnelSecurityPermissions } from "./tunnel/tunnel.security.ts";
 import { createTunnelRelay } from "./tunnel/tunnel.server.ts";
 
