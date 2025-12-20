@@ -41,6 +41,7 @@ export function encodeWithUint32Length(source: ArrayBuffer): Uint8Array {
   return buffer;
 }
 
+export type ReadOptions = { ahead?: boolean };
 export type SafeReader = ReturnType<typeof safeReader>;
 export function safeReader(
   source: ArrayBuffer,
@@ -50,31 +51,33 @@ export function safeReader(
   const view = new DataView(source);
   let offset = 0;
 
-  const uint8 = () => {
+  const uint8 = (options?: ReadOptions) => {
     ensureLength(buffer, offset + 1, outOfBufferError);
-    return buffer[offset++];
+    const value = view.getUint8(offset);
+    if (!options?.ahead) offset += 1;
+    return value;
   };
-  const uint16 = () => {
+  const uint16 = (options?: ReadOptions) => {
     ensureLength(buffer, offset + 2, outOfBufferError);
     const value = view.getUint16(offset);
-    offset += 2;
+    if (!options?.ahead) offset += 2;
     return value;
   };
-  const uint32 = () => {
+  const uint32 = (options?: ReadOptions) => {
     ensureLength(buffer, offset + 4, outOfBufferError);
     const value = view.getUint16(offset);
-    offset += 4;
+    if (!options?.ahead) offset += 4;
     return value;
   };
-  const data = (length: number) => {
+  const data = (length: number, options?: ReadOptions) => {
     ensureLength(buffer, offset + length, outOfBufferError);
     const data = buffer.subarray(offset, offset + length);
-    offset += length;
+    if (!options?.ahead) offset += length;
     return data;
   };
-  const dataLeft = () => {
+  const dataLeft = (options?: ReadOptions) => {
     const data = buffer.subarray(offset);
-    offset += data.length;
+    if (!options?.ahead) offset += data.length;
     return data;
   };
 

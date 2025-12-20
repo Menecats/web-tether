@@ -101,7 +101,7 @@ async function handleSocket(
     using queue = consumableAsyncQueue<ArrayBuffer>({ signal: options.signal });
     const ready = Promise.withResolvers<void>();
 
-    log.trace(`setting up socket content and listeners`);
+    log.trace(`configuring 'ready' listeners`);
 
     socket.onmessage = ({ data }) => {
       if (data instanceof ArrayBuffer) queue.push(data);
@@ -122,7 +122,7 @@ async function handleSocket(
     await ready.promise;
     log.debug(`connected`);
 
-    log.trace(`updating socket listeners`);
+    log.trace(`configuring 'abort' listeners`);
     socket.onopen = null;
     socket.onclose = () =>
       queue.abortWith(new TunnelClientError({ reason: "socket-closed" }));
@@ -134,7 +134,7 @@ async function handleSocket(
         }),
       );
 
-    log.trace(`setting up authentication`);
+    log.trace(`perform handshake`);
     const security = options.auth.mode === "basic"
       ? await handleBasicAuthenticationClient(
         socket,
@@ -151,7 +151,7 @@ async function handleSocket(
 
     success();
 
-    log.trace(`setting up decrypted queue`);
+    log.trace(`configure decrypted queue`);
     using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
       signal: options.signal,
       map: (packet, signal) => security.decrypt(packet, signal),

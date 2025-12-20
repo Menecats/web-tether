@@ -198,7 +198,7 @@ export async function handleSocketRelay(
     });
     const ready = Promise.withResolvers<void>();
 
-    options.log.trace(`setting up socket content and listeners`);
+    options.log.trace(`configuring 'ready' listeners`);
 
     socket.binaryType = "arraybuffer";
     socket.onmessage = ({ data }) => {
@@ -220,7 +220,7 @@ export async function handleSocketRelay(
     await ready.promise;
     options.log.debug(`connected`);
 
-    options.log.trace(`updating socket listeners`);
+    options.log.trace(`configuring 'abort' listeners`);
     socket.onopen = null;
     socket.onclose = () =>
       queue.abortWith(new TunnelServerError({ reason: "socket-closed" }));
