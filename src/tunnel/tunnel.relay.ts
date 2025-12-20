@@ -1,25 +1,17 @@
-import { deadline } from "@std/async";
+import { Logger, prefixLogger } from "../common/log.ts";
+import { encodeUint32, safeReader } from "../common/safe-buffer.ts";
 import {
-  safeReadUint16,
-  safeReadUint32,
-  safeReadUint8,
-  safeReadWithLength16,
-} from "../common/safe-buffer.ts";
-import { consumableAsyncQueue, safelyClose } from "../common/utils.ts";
+  cancellableAbort,
+  ConsumableAsyncQueue,
+  consumableAsyncQueue,
+  safelyClose,
+} from "../common/utils.ts";
 import { handleAdvencedAuthenticationServer } from "./auth/server/advanced-authentication.server.ts";
 import { handleBasicAuthenticationServer } from "./auth/server/basic-authentication.server.ts";
 import { RelayAuthentication, RelayVersion7 } from "./tunnel.const.ts";
+import { TunnelServerError } from "./tunnel.errors.ts";
 import { TunnelSecurity } from "./tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "./tunnel.server.ts";
-
-export type RelayRequest = { timeout: number };
-export type RelayPacket = { buffer: Uint8Array<ArrayBuffer>; view: DataView };
-
-export type RelayHandler = AsyncGenerator<
-  RelayRequest,
-  TunnelSecurity<"relay"> | undefined,
-  RelayPacket
->;
 
 export enum RelayBindReply {
   SUCCESS = 0x01,
@@ -90,31 +82,36 @@ export type Relay = {
   disconnected: (socket: WebSocket) => void;
 };
 
-async function* authenticateRelay(
-  options: CreateTunnelRelayOptions,
+async function authenticateRelay(
   socket: WebSocket,
-): RelayHandler {
-  // Determine protocol version
-  const packet = yield { timeout: 1000 }; // TODO: Define timeout
-  if (packet.buffer[0] !== RelayVersion7) return;
+  queue: ConsumableAsyncQueue<ArrayBuffer>,
+  auth: CreateTunnelRelayOptions["auth"],
+  log: Logger,
+): Promise<TunnelSecurity<"relay"> | undefined> {
+  log.debug(`waiting handshake`);
+  const packet = safeReader(
+    await queue.shift({
+      timeout: 1000,
+      timeoutError: () => new TunnelServerError({ reason: "timeout" }),
+    }),
+    () => new TunnelServerError({ reason: "buffer-too-short" }),
+  );
 
-  const authMode = packet.buffer[1];
+  const version = packet.uint8();
+  if (version !== RelayVersion7) {
+    throw new TunnelServerError({ reason: "unknown-version", version });
+  }
 
-  const authPacket = {
-    buffer: packet.buffer.subarray(2),
-    view: new DataView(
-      packet.buffer.buffer,
-      packet.buffer.byteOffset + 2,
-      packet.buffer.byteLength - 2,
-    ),
-  } satisfies RelayPacket;
+  const authMode = packet.uint8();
 
   if (authMode === RelayAuthentication.BASIC_AUTH) {
-    if (options.auth.basic.enabled) {
-      return yield* handleBasicAuthenticationServer(
-        options.auth.basic,
+    if (auth.basic.enabled) {
+      return await handleBasicAuthenticationServer(
         socket,
-        authPacket,
+        queue,
+        auth.basic,
+        packet,
+        prefixLogger(log, "[basic]"),
       );
     } else {
       socket.send(
@@ -123,16 +120,18 @@ async function* authenticateRelay(
           RelayAuthentication.UNSUPPORTED_AUTH,
         ]),
       );
-      return;
+      return undefined;
     }
   }
 
   if (authMode === RelayAuthentication.ADVANCED_AUTH) {
-    if (options.auth.advanced.enabled) {
-      return yield* handleAdvencedAuthenticationServer(
-        options.auth.advanced,
+    if (auth.advanced.enabled) {
+      return await handleAdvencedAuthenticationServer(
         socket,
-        authPacket,
+        queue,
+        auth.advanced,
+        packet,
+        prefixLogger(log, "[advanced]"),
       );
     } else {
       socket.send(
@@ -141,7 +140,7 @@ async function* authenticateRelay(
           RelayAuthentication.UNSUPPORTED_AUTH,
         ]),
       );
-      return;
+      return undefined;
     }
   }
 
@@ -151,6 +150,7 @@ async function* authenticateRelay(
       RelayAuthentication.UNSUPPORTED_AUTH,
     ]),
   );
+  return undefined;
 }
 
 // TODO:
@@ -194,86 +194,83 @@ export async function handleSocketRelay(
   relay: Relay,
 ) {
   try {
-    // Create received messages queue
-    using queue = consumableAsyncQueue<ArrayBuffer>();
+    using queue = consumableAsyncQueue<ArrayBuffer>({
+      signal: options.signal,
+    });
+    const ready = Promise.withResolvers<void>();
+
+    options.log.trace(`setting up socket content and listeners`);
 
     socket.binaryType = "arraybuffer";
     socket.onmessage = ({ data }) => {
       if (data instanceof ArrayBuffer) queue.push(data);
     };
-
-    // Wait for socket to open
-    const opened = Promise.withResolvers<void>();
     socket.onopen = () =>
-      queue.aborted() ? opened.reject(queue.abortReason()) : opened.resolve();
-    socket.onclose = () => opened.reject();
-    socket.onerror = () => opened.reject();
-    await opened.promise;
+      queue.aborted() ? ready.reject(queue.abortReason()) : ready.resolve();
+    socket.onclose = () =>
+      ready.reject(new TunnelServerError({ reason: "socket-closed" }));
+    socket.onerror = (event) =>
+      ready.reject(
+        new TunnelServerError({
+          reason: "socket-error",
+          error: ("error" in event) ? event.error : event,
+        }),
+      );
 
-    // Track closure or errors
+    options.log.trace(`waiting for socket to connect`);
+    await ready.promise;
+    options.log.debug(`connected`);
+
+    options.log.trace(`updating socket listeners`);
     socket.onopen = null;
-    socket.onclose = () => queue[Symbol.dispose]();
-    socket.onerror = () => queue[Symbol.dispose]();
+    socket.onclose = () =>
+      queue.abortWith(new TunnelServerError({ reason: "socket-closed" }));
+    socket.onerror = (event) =>
+      queue.abortWith(
+        new TunnelServerError({
+          reason: "socket-error",
+          error: ("error" in event) ? event.error : event,
+        }),
+      );
 
-    const relayHandler = authenticateRelay(options, socket);
+    options.log.trace(`authenticate socket`);
+    const security = await authenticateRelay(
+      socket,
+      queue,
+      options.auth,
+      prefixLogger(options.log, "[auth]"),
+    );
 
-    let request: RelayRequest | undefined;
-    let security: TunnelSecurity<"relay"> | undefined;
-
-    while (true) {
-      if (options.signal.aborted) {
-        await relayHandler.throw("interrupted"); // TODO
-        return;
-      }
-
-      let buffer: ArrayBuffer;
-      if (!request) {
-        buffer = new ArrayBuffer(0);
-      } else {
-        try {
-          buffer = await deadline(queue.shift(), request.timeout, {
-            signal: options.signal,
-          }).catch(() => {
-            throw "interrupted"; // TODO
-          });
-        } catch (err) {
-          await relayHandler.throw(err);
-          return;
-        }
-      }
-
-      const result = await relayHandler.next({
-        buffer: new Uint8Array(buffer),
-        view: new DataView(buffer),
-      });
-      if (result.done) {
-        request = undefined;
-        security = result.value;
-        break;
-      }
-
-      request = result.value;
+    if (!security) {
+      options.log.debug(`authentication failed`);
+      return;
     }
 
-    // Security must be configured to proceed
-    if (!security) return;
-
-    using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>(
-      (packet, signal) => security.decrypt(packet, signal),
-    );
+    options.log.trace(`setting up decrypted queue`);
+    using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
+      signal: options.signal,
+      map: (packet, signal) => security.decrypt(packet, signal),
+    });
 
     (async () => {
       try {
         while (true) {
           const encryptedPacket = await queue.shift();
-
-          if (decryptQueue.queued() >= options.auth.queueSize) {
+          if (decryptQueue.queued() >= options.performance.decryptQueueSize) {
             await decryptQueue.waitFor("dequeue");
           }
           decryptQueue.push(encryptedPacket);
         }
-      } finally {
-        decryptQueue[Symbol.dispose]();
+      } catch (error) {
+        if (!queue.aborted()) {
+          queue.abortWith(
+            (error instanceof TunnelServerError)
+              ? error
+              : new TunnelServerError({ reason: "unknown-error", error }),
+          );
+        }
+
+        decryptQueue.abortWith(queue.abortReason());
       }
     })();
 
@@ -282,20 +279,18 @@ export async function handleSocketRelay(
 
     relay.connected(socket);
 
-    while (true) {
-      const buffer = new Uint8Array(await decryptQueue.shift());
-      const view = new DataView(buffer.buffer);
-
-      let offset = 0;
-
-      const [command, commandLength] = safeReadUint8(
-        buffer.subarray(offset),
-        () => new Error("not enough buffer"), // TODO
+    options.log.trace(`ready, waiting commands`);
+    while (!options.signal.aborted) {
+      const buffer = safeReader(
+        await decryptQueue.shift(),
+        () => new TunnelServerError({ reason: "buffer-too-short" }),
       );
-      offset += commandLength;
+
+      const command = buffer.uint8();
 
       switch (command) {
         case RelayCommand.SOCKET_CLOSE: {
+          options.log.debug(`received close command`);
           socket.send(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
           return;
         }
@@ -324,11 +319,7 @@ export async function handleSocketRelay(
           }
           serviceBound = true;
 
-          const [servicesCount, servicesCountLength] = safeReadUint16(
-            buffer.subarray(offset),
-            () => new Error("not enough length"),
-          );
-          offset += servicesCountLength;
+          const servicesCount = buffer.uint16();
 
           let someUnavailable = false;
           let someUnauthorized = false;
@@ -337,17 +328,9 @@ export async function handleSocketRelay(
           const services: RelayService[] = [];
 
           for (let i = 0; i < servicesCount; ++i) {
-            const [serviceType, serviceTypeLength] = safeReadUint8(
-              buffer.subarray(offset),
-              () => new Error("not enough length"), // TODO
-            );
-            offset += serviceTypeLength;
+            const serviceType = buffer.uint8();
 
-            const [service, serviceLength] = safeReadWithLength16(
-              buffer.subarray(offset),
-              () => new Error("not enough length"),
-            );
-            offset += serviceLength;
+            const service = buffer.data(buffer.uint16());
 
             const serviceName = decoder.decode(service);
 
@@ -412,12 +395,8 @@ export async function handleSocketRelay(
         }
 
         case RelayCommand.SERVICE_CONNECT: {
-          const [uid, uidLength] = safeReadUint32(
-            buffer.subarray(offset),
-            () => new Error("not enough buffer"), // TODO
-          );
-          const encodedUID = buffer.subarray(offset, offset + uidLength);
-          offset += uidLength;
+          const uid = buffer.uint32();
+          const encodedUID = encodeUint32(uid);
 
           if (!security.permissions.connect.enabled) {
             socket.send(
@@ -443,11 +422,7 @@ export async function handleSocketRelay(
             else break;
           }
 
-          const [serviceType, serviceTypeLength] = safeReadUint8(
-            buffer.subarray(offset),
-            () => new Error("not enough buffer"), // TODO
-          );
-          offset += serviceTypeLength;
+          const serviceType = buffer.uint8();
 
           if (!(serviceType in RelayServiceType)) {
             socket.send(
@@ -461,11 +436,7 @@ export async function handleSocketRelay(
             else break;
           }
 
-          const [service, serviceLength] = safeReadWithLength16(
-            buffer.subarray(offset),
-            () => new Error("not enough buffer"), // TODO
-          );
-          offset += serviceLength;
+          const service = buffer.data(buffer.uint16());
 
           const serviceName = decoder.decode(service);
 
@@ -515,11 +486,7 @@ export async function handleSocketRelay(
         }
 
         case RelayCommand.SERVICE_STREAM: {
-          const [uid, uidLength] = safeReadUint32(
-            buffer.subarray(offset),
-            () => new Error("not enough buffer"), // TODO
-          );
-          offset += uidLength;
+          const uid = buffer.uint32();
 
           const connection = relay.connection(socket, uid);
           if (!connection) {
@@ -531,23 +498,14 @@ export async function handleSocketRelay(
 
             socket.send(closeBuffer);
           } else {
-            connection.forward(socket, buffer.subarray(offset));
+            connection.forward(socket, buffer.dataLeft());
           }
           break;
         }
 
         case RelayCommand.SERVICE_CLOSED: {
-          const [uid, uidLength] = safeReadUint32(
-            buffer.subarray(offset),
-            () => new Error("not enough buffer"), // TODO
-          );
-          offset += uidLength;
-
-          const [reason, reasonLength] = safeReadUint8(
-            buffer.subarray(offset),
-            () => new Error("not enough buffer"), // TODO
-          );
-          offset += reasonLength;
+          const uid = buffer.uint32();
+          const reason = buffer.uint8();
 
           relay.connection(socket, uid)?.close(socket, reason);
           break;
@@ -602,8 +560,8 @@ export function createRelay(): Relay {
       // TODO: Verify that this doesn't throw some sort of concurrent modification error,
       //       Otherwise clone the list of activeConnections first
       registeredSockets
-        .get(socket)!
-        .connections
+        .get(socket)
+        ?.connections
         .values()
         .forEach((c) =>
           c.close(socket, RelayServiceConnectionReason.TRANSPORT_SOCKET_CLOSED)

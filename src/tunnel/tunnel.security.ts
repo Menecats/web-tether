@@ -44,42 +44,47 @@ export function noPermissions(): TunnelSecurityPermissions {
   return { bind: { enabled: false }, connect: { enabled: false } };
 }
 
-export function createTunnelSecurity(
-  localRole: "client",
-  key: CryptoKey,
-): TunnelSecurity<"client">;
-export function createTunnelSecurity(
-  localRole: "relay",
-  key: CryptoKey,
-  permissions: TunnelSecurityPermissions,
-): TunnelSecurity<"relay">;
+export type TunnelSecurityOptions<Role extends TunnelSecurityRole> = {
+  role: Role;
+  key: CryptoKey;
+  permissions: TunnelSecurity<Role>["permissions"];
+  cryptoError: (sourceError: unknown, action: "encrypt" | "decrypt") => unknown;
+};
+
 export function createTunnelSecurity<Role extends TunnelSecurityRole>(
-  localRole: Role,
-  key: CryptoKey,
-  permissions?: TunnelSecurity<Role>["permissions"],
+  options: TunnelSecurityOptions<Role>,
 ): TunnelSecurity<Role> {
-  const remoteRole = localRole === "relay" ? "client" : "relay";
+  const localRole = options.role;
+  const remoteRole = options.role === "relay" ? "client" : "relay";
 
   let localCounter = 0n;
   let remoteCounter = 0n;
 
   return {
     role: localRole,
-    permissions: permissions as TunnelSecurity<Role>["permissions"],
+    permissions: options.permissions as TunnelSecurity<Role>["permissions"],
 
-    decrypt(chiphertext) {
-      return crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: encodeIV(remoteRole, remoteCounter++) },
-        key,
-        chiphertext,
-      );
+    async decrypt(chiphertext) {
+      try {
+        return await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: encodeIV(remoteRole, remoteCounter++) },
+          options.key,
+          chiphertext,
+        );
+      } catch (error) {
+        throw options.cryptoError(error, "decrypt");
+      }
     },
-    encrypt(plaintext) {
-      return crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: encodeIV(localRole, localCounter++) },
-        key,
-        plaintext,
-      );
+    async encrypt(plaintext) {
+      try {
+        return await crypto.subtle.encrypt(
+          { name: "AES-GCM", iv: encodeIV(localRole, localCounter++) },
+          options.key,
+          plaintext,
+        );
+      } catch (error) {
+        throw options.cryptoError(error, "encrypt");
+      }
     },
   };
 }

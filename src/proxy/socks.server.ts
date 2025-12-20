@@ -265,7 +265,12 @@ async function* handleProtocol(
   if (version === Socks5Version) {
     if (options.socks5.enabled) {
       options.log.trace(`handler: Delegate socks5 handler.`);
-      return yield* handleSocks5(options, writer);
+      return yield* handleSocks5(
+        options.socks5,
+        options.tunnel,
+        writer,
+        prefixLogger(options.log, `socks5:`),
+      );
     } else {
       options.log.trace(`handler: socks5 handler not enabled, closing.`);
       return;

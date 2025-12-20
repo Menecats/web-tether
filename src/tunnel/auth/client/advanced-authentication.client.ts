@@ -1,96 +1,110 @@
+import { Logger } from "../../../common/log.ts";
 import {
-  safeReadUint8,
-  safeReadWithLength8,
-  writeWithLength16,
+  encodeWithUint8Length,
+  safeReader,
 } from "../../../common/safe-buffer.ts";
-import { deriveRawSecret, deriveSessionKey } from "../../../common/security.ts";
+import {
+  deriveRawSecret,
+  deriveSessionKey,
+  hashCryptoKey,
+} from "../../../common/security.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { CreateTunnelRelayClientOptions } from "../../tunnel.client.ts";
 import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
+import { TunnelClientError } from "../../tunnel.errors.ts";
 import { createTunnelSecurity, TunnelSecurity } from "../../tunnel.security.ts";
 
 export async function handleAdvancedAuthenticationClient(
   socket: WebSocket,
   queue: ConsumableAsyncQueue<ArrayBuffer>,
   auth: CreateTunnelRelayClientOptions["auth"] & { mode: "advanced" },
+  log: Logger,
 ): Promise<TunnelSecurity<"client">> {
+  log.debug(`initializing`);
+
+  log.trace(`hashing client key`);
+  const clientKeyHash = await hashCryptoKey(auth.clientKeys.publicKey);
+
+  log.trace(`sending handshake`);
   socket.send(
     new Uint8Array([
       RelayVersion7,
       RelayAuthentication.ADVANCED_AUTH,
-      ...await writeWithLength16(
-        await crypto.subtle.exportKey(
-          "raw",
-          auth.clientKeys.publicKey,
-        ),
-      ),
+      ...encodeWithUint8Length(clientKeyHash),
     ]),
   );
 
+  log.trace(`creating session info`);
   const sessionInfo = new Uint8Array([
     RelayVersion7,
     RelayAuthentication.ADVANCED_AUTH,
   ]);
 
+  log.trace(`deriving shared secret`);
   const sharedSecret = await deriveRawSecret(
     auth.clientKeys.privateKey,
     auth.serverKey,
   );
 
-  const challenge = new Uint8Array(await queue.shift());
-
-  let offset = 0;
-
-  const [version, versionLength] = safeReadUint8(
-    challenge.subarray(offset),
-    () => new Error("not enough buffer"), // TODO
+  log.trace(`waiting for challenge`);
+  const authChallenge = safeReader(
+    await queue.shift({
+      timeout: 1000,
+      timeoutError: () => new TunnelClientError({ reason: "timeout" }),
+    }),
+    () => new TunnelClientError({ reason: "buffer-too-short" }),
   );
-  offset += versionLength;
+  log.trace(`parsing received challenge`);
 
-  if (version !== RelayVersion7) {
-    throw new Error("invalid version");
+  const challengeVersion = authChallenge.uint8();
+  if (challengeVersion !== RelayVersion7) {
+    throw new TunnelClientError({
+      reason: "unknown-version",
+      version: challengeVersion,
+    });
   }
 
-  const [authResult, authResultLength] = safeReadUint8(
-    challenge.subarray(offset),
-    () => new Error("not enough buffer"), // TODO
-  );
-  offset += authResultLength;
-
-  if (authResult === RelayAuthentication.UNSUPPORTED_AUTH) {
-    // TODO: log fail
-    throw new Error("fail"); // TODO: Error
+  const challengeAuthMode = authChallenge.uint8();
+  if (challengeAuthMode !== RelayAuthentication.ADVANCED_AUTH) {
+    throw new TunnelClientError({
+      reason: "auth-mode-unexpected",
+      expectedAuth: RelayAuthentication.ADVANCED_AUTH,
+      receivedAuth: challengeAuthMode,
+    });
   }
 
-  if (authResult !== RelayAuthentication.ADVANCED_AUTH) {
-    // TODO: log fail
-    throw new Error("fail"); // TODO: Error
-  }
+  log.trace(`reading handshake salt`);
+  const sessionSalt = authChallenge.data(authChallenge.uint8());
 
-  const [sessionSalt, sessionSaltLength] = safeReadWithLength8(
-    challenge.subarray(offset),
-    () => new Error("not enough buffer"), // TODO: Error
-  );
-  offset += sessionSaltLength;
+  log.trace(`reading encrypted challenge`);
+  const encryptedChallenge = authChallenge.data(authChallenge.uint8());
 
-  const [encryptedChallenge, encryptedChallengeLength] = safeReadWithLength8(
-    challenge.subarray(offset),
-    () => new Error("not enough buffer"), // TODO: Error
-  );
-  offset += encryptedChallengeLength;
-
+  log.trace(`deriving session key`);
   const sessionKey = await deriveSessionKey(
     sharedSecret,
     sessionSalt,
     sessionInfo,
   );
 
-  const security = createTunnelSecurity("client", sessionKey);
+  log.trace(`instantiating session security`);
+  const security = createTunnelSecurity({
+    role: "client",
+    key: sessionKey,
+    permissions: undefined,
+    cryptoError: (error, action) =>
+      new TunnelClientError({
+        reason: "cipher-error",
+        error,
+        action,
+      }),
+  });
 
+  log.trace(`decrypting challenge`);
   const decryptedChallenge = new Uint8Array(
     await security.decrypt(encryptedChallenge),
   );
 
+  log.trace(`solving challenge`);
   socket.send(
     await security.encrypt(
       new Uint8Array([
@@ -101,6 +115,35 @@ export async function handleAdvancedAuthenticationClient(
       ]),
     ),
   );
+
+  log.trace(`waiting result`);
+
+  const authResult = safeReader(
+    await queue.shift({
+      timeout: 1000,
+      timeoutError: () => new TunnelClientError({ reason: "timeout" }),
+    }),
+    () => new TunnelClientError({ reason: "buffer-too-short" }),
+  );
+
+  const resultVersion = authResult.uint8();
+  if (resultVersion !== RelayVersion7) {
+    throw new TunnelClientError({
+      reason: "unknown-version",
+      version: resultVersion,
+    });
+  }
+
+  const resultAuthMode = authResult.uint8();
+  if (resultAuthMode !== RelayAuthentication.AUTHORIZED) {
+    throw new TunnelClientError({
+      reason: "auth-mode-unexpected",
+      expectedAuth: RelayAuthentication.AUTHORIZED,
+      receivedAuth: resultAuthMode,
+    });
+  }
+
+  log.trace(`authenticated`);
 
   return security;
 }

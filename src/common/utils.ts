@@ -1,4 +1,5 @@
 import { delay } from "@std/async";
+import { abort } from "node:process";
 
 export function concatBuffers(
   ...buffers: Array<Uint8Array | null | undefined>
@@ -37,6 +38,23 @@ export function printEnum<
   return e[k] || `<unknown:${k}>`;
 }
 
+export type CancellableAbort = {
+  cancel: () => void;
+  [Symbol.dispose]: () => void;
+};
+export function cancellableAbort(
+  signal: AbortSignal,
+  abortion: () => void,
+): CancellableAbort {
+  const wrapped = () => abortion();
+  signal.addEventListener("abort", wrapped, { once: true });
+
+  return {
+    cancel: () => signal.removeEventListener("abort", wrapped),
+    [Symbol.dispose]: () => signal.removeEventListener("abort", wrapped),
+  };
+}
+
 export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
   aborted: () => boolean;
 
@@ -47,17 +65,30 @@ export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
   waitFor: (event: "enqueue" | "dequeue") => Promise<void>;
 
   push(item: Input): void;
-  shift(): Promise<Output>;
+  shift(
+    options?: {
+      timeout?: number;
+      timeoutError?: () => unknown;
+    },
+  ): Promise<Output>;
 };
 
-export function consumableAsyncQueue<Item>(): ConsumableAsyncQueue<Item, Item>;
+export function consumableAsyncQueue<Item>(options?: {
+  signal?: AbortSignal;
+  map?: (value: Item, signal: AbortSignal) => Item | Promise<Item>;
+}): ConsumableAsyncQueue<Item, Item>;
+export function consumableAsyncQueue<Input, Output>(options: {
+  signal?: AbortSignal;
+  map: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
+}): ConsumableAsyncQueue<Input, Output>;
 export function consumableAsyncQueue<Input, Output>(
-  map: (value: Input, signal: AbortSignal) => Output | Promise<Output>,
-): ConsumableAsyncQueue<Input, Output>;
-export function consumableAsyncQueue<Input, Output>(
-  map?: (value: Input, signal: AbortSignal) => Output | Promise<Output>,
+  options?: {
+    signal?: AbortSignal;
+    signalError?: () => unknown;
+    map?: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
+  },
 ): ConsumableAsyncQueue<Input, Output> {
-  if (!map) map = (item: Input) => item as unknown as Output;
+  const map = options?.map ?? ((item: Input) => item as unknown as Output);
 
   type Value =
     | { success: true; content: Output }
@@ -75,13 +106,12 @@ export function consumableAsyncQueue<Input, Output>(
 
   const abortController = new AbortController();
 
-  let abortReason: unknown = undefined;
-
   const queue = {
     aborted: () => abortController.signal.aborted,
     abortWith: (reason) => {
-      abortReason = reason;
-      abortController.abort();
+      options?.signal?.removeEventListener("abort", onAbort);
+
+      abortController.abort(reason);
 
       queued = 0;
       pending.length = 0;
@@ -97,7 +127,7 @@ export function consumableAsyncQueue<Input, Output>(
     },
     abortReason: () => {
       if (!queue.aborted()) throw new Error("Queue not aborted");
-      return abortReason;
+      return abortController.signal.reason;
     },
 
     [Symbol.dispose]: () => queue.abortWith(undefined),
@@ -149,8 +179,10 @@ export function consumableAsyncQueue<Input, Output>(
           }
         });
     },
-    shift: () => {
-      if (abortController.signal.aborted) return Promise.reject(abortReason);
+    shift: ({ timeout = -1, timeoutError } = {}) => {
+      if (abortController.signal.aborted) {
+        return Promise.reject(abortController.signal.reason);
+      }
 
       if (pending.length) {
         dequeueListeners.forEach((l) => l.resolve());
@@ -165,9 +197,24 @@ export function consumableAsyncQueue<Input, Output>(
 
       const wait = Promise.withResolvers<Output>();
       waiting.push(wait);
-      return wait.promise;
+
+      const timeoutTimer = timeout > 0
+        ? setTimeout(() => {
+          const index = waiting.indexOf(wait);
+          if (index >= 0) waiting.splice(index, 1);
+
+          wait.reject(timeoutError ? timeoutError() : new Error("timeout"));
+        }, timeout)
+        : undefined;
+
+      return wait.promise.finally(() => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      });
     },
   } satisfies ConsumableAsyncQueue<Input, Output>;
+
+  const onAbort = () => queue.abortWith(options!.signal!.reason);
+  options?.signal?.addEventListener("abort", onAbort, { once: true });
 
   return queue;
 }

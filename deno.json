@@ -2,8 +2,10 @@
   "tasks": {
     "proxy": "deno run --allow-net src/proxy.ts",
     "proxy:dev": "deno run --watch --allow-net src/proxy.ts",
-    "tunnel": "deno run --allow-net src/tunnel.ts",
-    "tunnel:dev": "deno run --watch --allow-net src/tunnel.ts"
+    "tunnel-server": "deno run --allow-net src/tunnel-server.ts",
+    "tunnel-server:dev": "deno run --watch --allow-net src/tunnel-server.ts",
+    "tunnel-client": "deno run --allow-net src/tunnel-client.ts",
+    "tunnel-client:dev": "deno run --watch --allow-net src/tunnel-client.ts"
   },
   "imports": {
     "@std/async": "jsr:@std/async@^1.0.15",

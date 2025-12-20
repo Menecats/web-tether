@@ -7,9 +7,11 @@ export type CreateTunnelRelayOptions = {
   listen: { port: number; hostname: string };
   signal: AbortSignal;
 
-  auth: {
-    queueSize: number;
+  performance: {
+    decryptQueueSize: number;
+  };
 
+  auth: {
     basic:
       | { enabled: false }
       | {
@@ -31,9 +33,12 @@ export type CreateTunnelRelayOptions = {
       | {
         enabled: true;
         serverKeys: CryptoKeyPair;
-        validateClientPublicKey: (
-          keyHash: Uint8Array<ArrayBuffer>,
-        ) => Promise<TunnelSecurityPermissions | undefined>;
+        lookupClient: (hash: Uint8Array<ArrayBuffer>) => Promise<
+          {
+            key: CryptoKey;
+            permissions: TunnelSecurityPermissions;
+          } | undefined
+        >;
       };
   };
 
@@ -87,9 +92,13 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         const { socket, response } = Deno.upgradeWebSocket(request);
 
         const socketId = crypto.randomUUID();
-        const socketLog: Logger = prefixLogger(options.log, `[${socketId}]:`);
+        const socketLog: Logger = prefixLogger(
+          options.log,
+          "[socket]",
+          `[${socketId}]`,
+        );
 
-        socketLog.debug(`New socket.`);
+        socketLog.debug(`socket connected`);
         const socketDone = handleSocketRelay(
           { ...options, log: socketLog },
           socket,
@@ -102,13 +111,10 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         // Once done deregister active connection
         socketDone
           .catch((error) => {
-            socketLog.error(
-              `Error while handling socket.`,
-              error,
-            );
+            socketLog.error(`error handling socket`, error);
           })
           .finally(() => {
-            socketLog.trace(`Purging socket.`);
+            socketLog.trace(`purge socket`);
             allSockets.delete(socketDone);
           });
 
@@ -128,7 +134,8 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
           return route.handle(request, result);
         } catch (err) {
           options.log.error(
-            `Error while handling request '${request.url}'`,
+            "[http]",
+            `error handling request '${request.url}'`,
             err,
           );
           return json({ error: "unhandled-error" }, { status: 500 });

@@ -1,5 +1,6 @@
 import { createLogger } from "./common/log.ts";
 import { pbkdf2Hash512 } from "./common/security.ts";
+import { TunnelServerError } from "./tunnel/tunnel.errors.ts";
 import { TunnelSecurityPermissions } from "./tunnel/tunnel.security.ts";
 import { createTunnelRelay } from "./tunnel/tunnel.server.ts";
 
@@ -7,7 +8,7 @@ const controller = new AbortController();
 
 Deno.addSignalListener("SIGINT", () => {
   console.log("interrupt");
-  controller.abort();
+  controller.abort(new TunnelServerError({ reason: "application-aborted" }));
 });
 
 const testSalt = new Uint8Array([
@@ -34,6 +35,7 @@ const testHash = new Uint8Array(
     testSalt,
   ),
 );
+
 const testPermissions = {
   bind: { enabled: true, allowed: () => Promise.resolve(true) },
   connect: { enabled: true, allowed: () => Promise.resolve(true) },
@@ -41,6 +43,7 @@ const testPermissions = {
 
 await createTunnelRelay({
   listen: { hostname: "0.0.0.0", port: 3456 },
+  performance: { decryptQueueSize: 1024 },
   auth: {
     basic: {
       enabled: true,
@@ -55,7 +58,6 @@ await createTunnelRelay({
       },
     },
     advanced: { enabled: false },
-    queueSize: 1024,
   },
   log: createLogger((level, content) => console.log(level, ...content)),
   signal: controller.signal,

@@ -1,27 +1,35 @@
-import { safeReadWithLength8 } from "../../../common/safe-buffer.ts";
-import { concatBuffers, randomWait } from "../../../common/utils.ts";
+import { Logger } from "../../../common/log.ts";
+import { SafeReader, safeReader } from "../../../common/safe-buffer.ts";
+import {
+  concatBuffers,
+  ConsumableAsyncQueue,
+  randomWait,
+} from "../../../common/utils.ts";
 import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
-import type { RelayHandler, RelayPacket } from "../../tunnel.relay.ts";
-import { createTunnelSecurity } from "../../tunnel.security.ts";
+import { TunnelServerError } from "../../tunnel.errors.ts";
+import { createTunnelSecurity, TunnelSecurity } from "../../tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "../../tunnel.server.ts";
 
 const instanceMockSalt = crypto.getRandomValues(new Uint8Array(16));
 
-export async function* handleBasicAuthenticationServer(
-  auth: CreateTunnelRelayOptions["auth"]["basic"] & { enabled: true },
+export async function handleBasicAuthenticationServer(
   socket: WebSocket,
-  { buffer }: RelayPacket,
-): RelayHandler {
+  queue: ConsumableAsyncQueue<ArrayBuffer>,
+  auth: CreateTunnelRelayOptions["auth"]["basic"] & { enabled: true },
+  buffer: SafeReader,
+  log: Logger,
+): Promise<TunnelSecurity<"relay">> {
   const decoder = new TextDecoder();
 
-  const [identifier] = safeReadWithLength8(
-    buffer,
-    () => new Error("not enough buffer"), // TODO
-  );
+  log.trace("reading client identifier");
+  const identifier = buffer.data(buffer.uint8());
 
-  const lookup = await auth.lookup(decoder.decode(identifier));
-  if (!lookup) {
-    // Fake authentication to prevent user identifier
+  log.trace("looking up client");
+  const client = await auth.lookup(decoder.decode(identifier));
+  if (!client) {
+    log.trace(
+      "client not found, proceeding with mock authentication to avoid user enumeration",
+    );
 
     const mockSalt = new Uint8Array(
       await crypto.subtle.digest(
@@ -32,6 +40,7 @@ export async function* handleBasicAuthenticationServer(
     const mockIV = crypto.getRandomValues(new Uint8Array(16));
     const mockKey = crypto.getRandomValues(new Uint8Array(32));
 
+    log.trace("sending mock challenge");
     socket.send(
       new Uint8Array([
         RelayVersion7,
@@ -48,27 +57,35 @@ export async function* handleBasicAuthenticationServer(
       ]),
     );
 
-    yield { timeout: 1000 };
+    log.trace("wait for solution");
+    await queue.shift({
+      timeout: 1000, // TODO
+      timeoutError: () => new TunnelServerError({ reason: "timeout" }),
+    });
     await randomWait(100, 500);
 
+    log.trace("notify unauthorized");
     socket.send(
       new Uint8Array([
         RelayVersion7,
         RelayAuthentication.UNAUTHORIZED,
       ]),
     );
-    return;
+    throw new TunnelServerError({ reason: "auth-unknown-client" });
   }
+
+  log.trace("client found, derive handshake key");
 
   const handshakeIV = crypto.getRandomValues(new Uint8Array(16));
   const handshakeKey = await crypto.subtle.importKey(
     "raw",
-    lookup.hash,
+    client.hash,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"],
   );
 
+  log.trace("generate and cipher session key");
   const sessionKey = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     true,
@@ -82,13 +99,14 @@ export async function* handleBasicAuthenticationServer(
     ),
   );
 
+  log.trace("sending challenge");
   socket.send(
     new Uint8Array([
       RelayVersion7,
       RelayAuthentication.BASIC_AUTH,
 
-      lookup.salt.length,
-      ...lookup.salt,
+      client.salt.length,
+      ...client.salt,
 
       handshakeIV.length,
       ...handshakeIV,
@@ -98,43 +116,73 @@ export async function* handleBasicAuthenticationServer(
     ]),
   );
 
-  const encryptedResponse = yield { timeout: 1000 };
+  log.trace("wait for solution");
+  const encryptedSolution = await queue.shift({
+    timeout: 1000, // TODO
+    timeoutError: () => new TunnelServerError({ reason: "timeout" }),
+  });
   await randomWait(100, 500);
 
-  const security = createTunnelSecurity(
-    "relay",
-    sessionKey,
-    lookup.permissions,
-  );
+  log.trace("create tunnel security");
+  const security = createTunnelSecurity({
+    role: "relay",
+    key: sessionKey,
+    permissions: client.permissions,
+    cryptoError: (error, action) =>
+      new TunnelServerError({
+        reason: "cipher-error",
+        error,
+        action,
+      }),
+  });
 
   try {
-    const decryptedResponse = new Uint8Array(
-      await security.decrypt(encryptedResponse.buffer),
+    log.trace("decrypting solution");
+    const solution = safeReader(
+      await security.decrypt(encryptedSolution),
+      () => new TunnelServerError({ reason: "buffer-too-short" }),
     );
 
-    if (
-      decryptedResponse[0] !== RelayVersion7 ||
-      decryptedResponse[1] !== RelayAuthentication.BASIC_AUTH ||
-      decryptedResponse.length < 2 + lookup.hash.length
-    ) {
-      throw "invalid";
+    const solutionVersion = solution.uint8();
+    if (solutionVersion !== RelayVersion7) {
+      throw new TunnelServerError({
+        reason: "unknown-version",
+        version: solutionVersion,
+      });
     }
 
-    let invalid = false;
-    for (let i = 0; i < lookup.hash.length; ++i) {
-      if (lookup.hash[i] !== decryptedResponse[2 + i]) invalid = true;
+    const solutionAuthMode = solution.uint8();
+    if (solutionAuthMode !== RelayAuthentication.BASIC_AUTH) {
+      throw new TunnelServerError({
+        reason: "auth-mode-unexpected",
+        receivedAuth: solutionAuthMode,
+        expectedAuth: RelayAuthentication.BASIC_AUTH,
+      });
     }
 
-    if (invalid) throw "invalid";
+    const challengeSolution = solution.data(client.hash.length);
+    for (let i = 0; i < client.hash.length; ++i) {
+      if (client.hash[i] === challengeSolution[i]) continue;
 
+      throw new TunnelServerError({ reason: "auth-challenge-failed" });
+    }
+
+    log.trace("authenticated");
+    socket.send(
+      new Uint8Array([
+        RelayVersion7,
+        RelayAuthentication.AUTHORIZED,
+      ]),
+    );
     return security;
-  } catch {
+  } catch (error) {
+    log.trace("challenge failed, notify unauthorized");
     socket.send(
       new Uint8Array([
         RelayVersion7,
         RelayAuthentication.UNAUTHORIZED,
       ]),
     );
-    return;
+    throw error;
   }
 }
