@@ -14,7 +14,7 @@ export type CreateTunnelRelayClientOptions = {
 
   performance: {
     decryptQueueSize: number;
-    reconnectDelay: (options: { attempts: number; valid: boolean }) => number;
+    reconnectDelay: (context: { attempts: number; valid: boolean }) => number;
   };
 
   auth:

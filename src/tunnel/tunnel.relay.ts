@@ -1,7 +1,6 @@
 import { Logger, prefixLogger } from "../common/log.ts";
 import { encodeUint32, safeReader } from "../common/safe-buffer.ts";
 import {
-  cancellableAbort,
   ConsumableAsyncQueue,
   consumableAsyncQueue,
   safelyClose,

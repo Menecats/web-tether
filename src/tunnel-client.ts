@@ -17,7 +17,7 @@ await createTunnelRelayClient({
 
   performance: {
     decryptQueueSize: 1024,
-    reconnectDelay: (options) => 5000,
+    reconnectDelay: (context) => 5000,
   },
 
   auth: {

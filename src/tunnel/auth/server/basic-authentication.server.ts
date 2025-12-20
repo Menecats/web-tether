@@ -33,10 +33,10 @@ export async function handleBasicAuthenticationServer(
 
     const mockSalt = new Uint8Array(
       await crypto.subtle.digest(
-        { name: "MD5" },
+        { name: "SHA-256" },
         concatBuffers(instanceMockSalt, identifier),
       ),
-    );
+    ).subarray(0, 16);
     const mockIV = crypto.getRandomValues(new Uint8Array(16));
     const mockKey = crypto.getRandomValues(new Uint8Array(32));
 

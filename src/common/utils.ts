@@ -1,5 +1,4 @@
 import { delay } from "@std/async";
-import { abort } from "node:process";
 
 export function concatBuffers(
   ...buffers: Array<Uint8Array | null | undefined>
@@ -36,23 +35,6 @@ export function printEnum<
   k: T,
 ) {
   return e[k] || `<unknown:${k}>`;
-}
-
-export type CancellableAbort = {
-  cancel: () => void;
-  [Symbol.dispose]: () => void;
-};
-export function cancellableAbort(
-  signal: AbortSignal,
-  abortion: () => void,
-): CancellableAbort {
-  const wrapped = () => abortion();
-  signal.addEventListener("abort", wrapped, { once: true });
-
-  return {
-    cancel: () => signal.removeEventListener("abort", wrapped),
-    [Symbol.dispose]: () => signal.removeEventListener("abort", wrapped),
-  };
 }
 
 export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
