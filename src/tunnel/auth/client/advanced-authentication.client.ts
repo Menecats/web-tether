@@ -9,7 +9,7 @@ import {
   hashCryptoKey,
 } from "../../../common/security.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
-import { CreateTunnelRelayClientOptions } from "../../tunnel.client.ts";
+import { TunnelRelayClientOptions } from "../../tunnel.client.ts";
 import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
 import { TunnelClientError } from "../../tunnel.errors.ts";
 import { createTunnelSecurity, TunnelSecurity } from "../../tunnel.security.ts";
@@ -17,7 +17,7 @@ import { createTunnelSecurity, TunnelSecurity } from "../../tunnel.security.ts";
 export async function handleAdvancedAuthenticationClient(
   socket: WebSocket,
   queue: ConsumableAsyncQueue<ArrayBuffer>,
-  auth: CreateTunnelRelayClientOptions["auth"] & { mode: "advanced" },
+  auth: TunnelRelayClientOptions["auth"] & { mode: "advanced" },
   log: Logger,
 ): Promise<TunnelSecurity<"client">> {
   log.debug(`initializing`);

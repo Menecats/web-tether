@@ -15,7 +15,13 @@ export type TunnelErrorReason =
 
 export type TunnelClientErrorReason =
   | TunnelErrorReason
-  | { reason: "invalid-configuration"; details: "client-keys" };
+  | {
+    reason: "invalid-configuration";
+    details:
+      | "client-keys"
+      | "duplicate-bound-services"
+      | "duplicate-bound-addresses";
+  };
 export class TunnelClientError {
   constructor(public readonly reason: TunnelClientErrorReason) {}
 }

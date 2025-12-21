@@ -1,8 +1,28 @@
-async function generateECDHKeyPair() {
+export async function generateECDHKeyPair() {
   return await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
     ["deriveKey", "deriveBits"],
+  );
+}
+
+export async function importPrivateKey(key: JsonWebKey) {
+  return await crypto.subtle.importKey(
+    "jwk",
+    key,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    ["deriveKey", "deriveBits"],
+  );
+}
+
+export async function importPublicKey(key: JsonWebKey) {
+  return await crypto.subtle.importKey(
+    "jwk",
+    key,
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    [],
   );
 }
 

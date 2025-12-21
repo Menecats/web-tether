@@ -8,6 +8,7 @@ import {
   SOCKS_REQUEST_TIMEOUT,
   SocksDestinationAddress,
   SocksHandler,
+  SocksTunnelResponse,
 } from "./socks.common.ts";
 import { CreateSocksServerOptions } from "./socks.server.ts";
 
@@ -275,7 +276,11 @@ export async function* handleSocks5(
   log.trace(
     `creating tunnel (${destination.host}:${destination.port}).`,
   );
-  const tunnelResponse = await createTunnel(destination, log);
+  const tunnelResponse = await createTunnel(destination, log)
+    .catch(() => ({
+      ok: false,
+      error: "general-failure",
+    } satisfies SocksTunnelResponse));
 
   if (tunnelResponse.ok) {
     log.trace(

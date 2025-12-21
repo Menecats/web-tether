@@ -37,6 +37,10 @@ export function printEnum<
   return e[k] || `<unknown:${k}>`;
 }
 
+export type ConsumableAsyncQueuePushOptions = {
+  onDequeue?: () => void;
+  onAborted?: (reason: unknown) => void;
+};
 export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
   aborted: () => boolean;
 
@@ -44,37 +48,52 @@ export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
   abortReason: () => unknown;
 
   queued: () => number;
-  waitFor: (event: "enqueue" | "dequeue") => Promise<void>;
+  waitFor: (
+    event: "enqueue" | "dequeue",
+    options?: { signal?: AbortSignal },
+  ) => Promise<void>;
 
-  push(item: Input): void;
+  push(item: Input, options?: ConsumableAsyncQueuePushOptions): void;
   shift(
     options?: {
+      signal?: AbortSignal;
       timeout?: number;
       timeoutError?: () => unknown;
     },
   ): Promise<Output>;
 };
 
-export function consumableAsyncQueue<Item>(options?: {
-  signal?: AbortSignal;
+export function consumableAsyncQueue<Item>(options: {
+  signal: AbortSignal;
   map?: (value: Item, signal: AbortSignal) => Item | Promise<Item>;
 }): ConsumableAsyncQueue<Item, Item>;
 export function consumableAsyncQueue<Input, Output>(options: {
-  signal?: AbortSignal;
+  signal: AbortSignal;
   map: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
 }): ConsumableAsyncQueue<Input, Output>;
 export function consumableAsyncQueue<Input, Output>(
-  options?: {
-    signal?: AbortSignal;
-    signalError?: () => unknown;
+  options: {
+    signal: AbortSignal;
     map?: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
   },
 ): ConsumableAsyncQueue<Input, Output> {
-  const map = options?.map ?? ((item: Input) => item as unknown as Output);
+  const map = options.map ?? ((item: Input) => item as unknown as Output);
 
   type Value =
-    | { success: true; content: Output }
-    | { success: false; reason: unknown };
+    | {
+      input: Input;
+      options: ConsumableAsyncQueuePushOptions;
+
+      success: true;
+      content: Output;
+    }
+    | {
+      input: Input;
+      options: ConsumableAsyncQueuePushOptions;
+
+      success: false;
+      reason: unknown;
+    };
 
   const waiting: Array<PromiseWithResolvers<Output>> = [];
   const pending: Array<Value> = [];
@@ -91,11 +110,20 @@ export function consumableAsyncQueue<Input, Output>(
   const queue = {
     aborted: () => abortController.signal.aborted,
     abortWith: (reason) => {
-      options?.signal?.removeEventListener("abort", onAbort);
+      if (abortController.signal.aborted) return;
+
+      options.signal.removeEventListener("abort", onAbort);
 
       abortController.abort(reason);
 
       queued = 0;
+      pending.forEach((item) => {
+        try {
+          item.options.onAborted?.(reason);
+        } catch {
+          // Ignore error
+        }
+      });
       pending.length = 0;
 
       waiting.forEach((w) => w.reject(reason));
@@ -108,23 +136,42 @@ export function consumableAsyncQueue<Input, Output>(
       dequeueListeners.length = 0;
     },
     abortReason: () => {
-      if (!queue.aborted()) throw new Error("Queue not aborted");
+      if (!abortController.signal.aborted) throw new Error("Queue not aborted");
       return abortController.signal.reason;
     },
 
-    [Symbol.dispose]: () => queue.abortWith(undefined),
+    [Symbol.dispose]: () => queue.abortWith(new Error("Queue disposed")),
 
     queued: () => queued,
-    waitFor: (event) => {
+    waitFor: (event, { signal } = {}) => {
+      if (signal?.aborted) {
+        return Promise.reject(signal.reason);
+      }
+      if (abortController.signal.aborted) {
+        return Promise.reject(abortController.signal.reason);
+      }
+
+      const listeners = event === "enqueue"
+        ? enqueueListeners
+        : dequeueListeners;
+
       const promise = Promise.withResolvers<void>();
+      listeners.push(promise);
 
-      if (event === "enqueue") enqueueListeners.push(promise);
-      else dequeueListeners.push(promise);
+      const abortWait = () => {
+        const index = listeners.indexOf(promise);
+        if (index >= 0) listeners.splice(index, 1);
 
-      return promise.promise;
+        promise.reject(signal!.reason);
+      };
+      signal?.addEventListener("abort", abortWait, { once: true });
+
+      return promise.promise.finally(() => {
+        signal?.removeEventListener("abort", abortWait);
+      });
     },
 
-    push: (item) => {
+    push: (item, options) => {
       if (abortController.signal.aborted) return;
 
       queued++;
@@ -140,9 +187,21 @@ export function consumableAsyncQueue<Input, Output>(
         .then(async () => {
           let value: Value;
           try {
-            value = { success: true, content: await process };
+            value = {
+              input: item,
+              options: options || {},
+
+              success: true,
+              content: await process,
+            };
           } catch (err) {
-            value = { success: false, reason: err };
+            value = {
+              input: item,
+              options: options || {},
+
+              success: false,
+              reason: err,
+            };
           }
 
           if (abortController.signal.aborted) return;
@@ -154,6 +213,12 @@ export function consumableAsyncQueue<Input, Output>(
 
             const next = waiting.shift()!;
 
+            try {
+              value.options.onDequeue?.();
+            } catch {
+              // Ignore error
+            }
+
             if (value.success) next.resolve(value.content);
             else next.reject(value.reason);
           } else {
@@ -161,7 +226,10 @@ export function consumableAsyncQueue<Input, Output>(
           }
         });
     },
-    shift: ({ timeout = -1, timeoutError } = {}) => {
+    shift: ({ signal, timeout = -1, timeoutError } = {}) => {
+      if (signal?.aborted) {
+        return Promise.reject(signal.reason);
+      }
       if (abortController.signal.aborted) {
         return Promise.reject(abortController.signal.reason);
       }
@@ -172,6 +240,13 @@ export function consumableAsyncQueue<Input, Output>(
         queued--;
 
         const value = pending.shift()!;
+
+        try {
+          value.options.onDequeue?.();
+        } catch {
+          // Ignore error
+        }
+
         return value.success
           ? Promise.resolve(value.content)
           : Promise.reject(value.reason);
@@ -180,23 +255,33 @@ export function consumableAsyncQueue<Input, Output>(
       const wait = Promise.withResolvers<Output>();
       waiting.push(wait);
 
+      const unshift = () => {
+        const index = waiting.indexOf(wait);
+        if (index >= 0) waiting.splice(index, 1);
+      };
+
+      const abortShift = () => {
+        unshift();
+        wait.reject(signal!.reason);
+      };
+      signal?.addEventListener("abort", abortShift, { once: true });
+
       const timeoutTimer = timeout > 0
         ? setTimeout(() => {
-          const index = waiting.indexOf(wait);
-          if (index >= 0) waiting.splice(index, 1);
-
+          unshift();
           wait.reject(timeoutError ? timeoutError() : new Error("timeout"));
         }, timeout)
         : undefined;
 
       return wait.promise.finally(() => {
+        signal?.removeEventListener("abort", abortShift);
         if (timeoutTimer) clearTimeout(timeoutTimer);
       });
     },
   } satisfies ConsumableAsyncQueue<Input, Output>;
 
-  const onAbort = () => queue.abortWith(options!.signal!.reason);
-  options?.signal?.addEventListener("abort", onAbort, { once: true });
+  const onAbort = () => queue.abortWith(options.signal.reason);
+  options.signal.addEventListener("abort", onAbort, { once: true });
 
   return queue;
 }
@@ -212,4 +297,18 @@ export function randomWait(min: number, max: number, signal?: AbortSignal) {
     persistent: false,
     signal,
   });
+}
+
+export function derivedSignal(signal: AbortSignal): AbortController {
+  const derived = new AbortController();
+
+  const onAbort = () => derived.abort(signal.reason);
+  signal.addEventListener("abort", onAbort, { once: true });
+  derived.signal.addEventListener(
+    "abort",
+    () => signal.removeEventListener("abort", onAbort),
+    { once: true },
+  );
+
+  return derived;
 }

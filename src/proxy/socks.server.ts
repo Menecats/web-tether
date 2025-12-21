@@ -63,45 +63,47 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
   // Store all active connections
   const allConnections = new Set<ReturnType<typeof handleSocksConnection>>();
 
-  // Listen for new connections
-  options.log.info("Listening for connections");
-  for await (const connection of listener) {
-    if (options.signal.aborted) {
-      options.log.debug(`Got connection in aborted listener, closing.`);
-      safelyClose(connection);
-      break;
+  try {
+    // Listen for new connections
+    options.log.info("Listening for connections");
+    for await (const connection of listener) {
+      if (options.signal.aborted) {
+        options.log.debug(`Got connection in aborted listener, closing.`);
+        safelyClose(connection);
+        break;
+      }
+
+      const connectionId = crypto.randomUUID();
+      const connectionLog: Logger = prefixLogger(
+        options.log,
+        `[${connectionId}]:`,
+      );
+
+      connectionLog.debug(`New connection.`);
+      const connectionDone = handleSocksConnection(
+        { ...options, log: connectionLog },
+        connection,
+      );
+
+      // Register active connection
+      allConnections.add(connectionDone);
+
+      // Once done deregister active connection
+      connectionDone
+        .catch((error) => {
+          connectionLog.error(
+            `Error while handling connection.`,
+            error,
+          );
+        })
+        .finally(() => {
+          connectionLog.trace(`Purging connection.`);
+          allConnections.delete(connectionDone);
+        });
     }
-
-    const connectionId = crypto.randomUUID();
-    const connectionLog: Logger = prefixLogger(
-      options.log,
-      `[${connectionId}]:`,
-    );
-
-    connectionLog.debug(`New connection.`);
-    const connectionDone = handleSocksConnection(
-      { ...options, log: connectionLog },
-      connection,
-    );
-
-    // Register active connection
-    allConnections.add(connectionDone);
-
-    // Once done deregister active connection
-    connectionDone
-      .catch((error) => {
-        connectionLog.error(
-          `Error while handling connection.`,
-          error,
-        );
-      })
-      .finally(() => {
-        connectionLog.trace(`Purging connection.`);
-        allConnections.delete(connectionDone);
-      });
+  } finally {
+    options.signal.removeEventListener("abort", closeListener);
   }
-
-  options.signal.removeEventListener("abort", closeListener);
 
   // Wait for all pending active connections to complete
   await Promise.all([...allConnections]);

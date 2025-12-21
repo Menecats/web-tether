@@ -2,7 +2,7 @@ import { Logger } from "../../../common/log.ts";
 import { safeReader } from "../../../common/safe-buffer.ts";
 import { pbkdf2Hash512 } from "../../../common/security.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
-import { CreateTunnelRelayClientOptions } from "../../tunnel.client.ts";
+import { TunnelRelayClientOptions } from "../../tunnel.client.ts";
 import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
 import { TunnelClientError } from "../../tunnel.errors.ts";
 import { createTunnelSecurity, TunnelSecurity } from "../../tunnel.security.ts";
@@ -10,7 +10,7 @@ import { createTunnelSecurity, TunnelSecurity } from "../../tunnel.security.ts";
 export async function handleBasicAuthenticationClient(
   socket: WebSocket,
   queue: ConsumableAsyncQueue<ArrayBuffer>,
-  auth: CreateTunnelRelayClientOptions["auth"] & { mode: "basic" },
+  auth: TunnelRelayClientOptions["auth"] & { mode: "basic" },
   log: Logger,
 ): Promise<TunnelSecurity<"client">> {
   log.debug(`initializing`);

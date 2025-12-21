@@ -193,9 +193,7 @@ export async function handleSocketRelay(
   relay: Relay,
 ) {
   try {
-    using queue = consumableAsyncQueue<ArrayBuffer>({
-      signal: options.signal,
-    });
+    using queue = consumableAsyncQueue<ArrayBuffer>({ signal: options.signal });
     const ready = Promise.withResolvers<void>();
 
     options.log.trace(`configuring 'ready' listeners`);

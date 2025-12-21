@@ -1,4 +1,5 @@
 import { createLogger } from "./common/log.ts";
+import { client, server } from "./common/test-keys.ts";
 import { createTunnelRelayClient } from "./tunnel/tunnel.client.ts";
 import { TunnelClientError } from "./tunnel/tunnel.errors.ts";
 
@@ -16,15 +17,25 @@ await createTunnelRelayClient({
   endpoint: new URL("ws://localhost:3456/relay"),
 
   performance: {
+    connectionHandleTimeout: 1000,
     decryptQueueSize: 1024,
     reconnectDelay: (context) => 5000,
   },
 
   auth: {
-    mode: "basic",
-    identifier: username,
-    passkey: password,
+    mode: "advanced",
+    serverKey: server.publicKey,
+    clientKeys: client,
   },
   log: createLogger((level, content) => console.log(level, ...content)),
   signal: controller.signal,
+
+  services: {
+    proxyServer: { enabled: false },
+    proxyClient: [
+      { service: "remote-client", address: { port: 1080 } },
+    ],
+    bind: [],
+    connect: [],
+  },
 });

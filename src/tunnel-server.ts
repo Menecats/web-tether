@@ -1,5 +1,7 @@
 import { createLogger } from "./common/log.ts";
+import { areBuffersEqual } from "./common/safe-buffer.ts";
 import { pbkdf2Hash512 } from "./common/security.ts";
+import { client, clientHash, server } from "./common/test-keys.ts";
 import { TunnelServerError } from "./tunnel/tunnel.errors.ts";
 import { TunnelSecurityPermissions } from "./tunnel/tunnel.security.ts";
 import { createTunnelRelay } from "./tunnel/tunnel.server.ts";
@@ -57,7 +59,23 @@ await createTunnelRelay({
           : Promise.resolve(undefined);
       },
     },
-    advanced: { enabled: false },
+    advanced: {
+      enabled: true,
+      serverKeys: server,
+      lookupClient: async (hash) => {
+        if (areBuffersEqual(hash, clientHash)) {
+          return {
+            key: client.publicKey,
+            permissions: {
+              bind: { enabled: false },
+              connect: { enabled: false },
+            },
+          };
+        }
+
+        return undefined;
+      },
+    },
   },
   log: createLogger((level, content) => console.log(level, ...content)),
   signal: controller.signal,
