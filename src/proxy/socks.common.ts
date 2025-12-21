@@ -1,3 +1,7 @@
+import {
+  ConnectionTunnel,
+  ConnectionTunnelErrorReason,
+} from "../common/communication.ts";
 import { Logger } from "../common/log.ts";
 
 export type SocksDestinationAddress = {
@@ -13,27 +17,13 @@ export type SocksHandlerBufferResponse = { buffer: Uint8Array; view: DataView };
 
 export type SocksHandler = AsyncGenerator<
   SocksHandlerBufferRequest,
-  SocksTunnel | undefined,
+  ConnectionTunnel | undefined,
   SocksHandlerBufferResponse
 >;
 
-export type SocksTunnel = {
-  close(): void;
-
-  readonly readable: ReadableStream<Uint8Array<ArrayBuffer>>;
-  readonly writable: WritableStream<Uint8Array<ArrayBufferLike>>;
-};
-
-export type SocksTunnelError =
-  | "general-failure"
-  | "not-allowed"
-  | "network-unreachable"
-  | "host-unreachable"
-  | "connection-refused"
-  | "ttl-expired";
 export type SocksTunnelResponse =
-  | { ok: true; tunnel: SocksTunnel }
-  | { ok: false; error: SocksTunnelError };
+  | { ok: true; tunnel: ConnectionTunnel }
+  | { ok: false; error: ConnectionTunnelErrorReason };
 
 export type SocksTunneler = (
   destination: SocksDestinationAddress,

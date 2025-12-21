@@ -1,5 +1,10 @@
 import { delay } from "@std/async/delay";
 import { asyncAction } from "../common/async.ts";
+import {
+  ConnectionTunnel,
+  ConnectionTunnelErrorReason,
+  createConnectionTunnelPair,
+} from "../common/communication.ts";
 import { Logger, prefixLogger } from "../common/log.ts";
 import { safeReader } from "../common/safe-buffer.ts";
 import { verifyCryptoKeyPair } from "../common/security.ts";
@@ -7,6 +12,7 @@ import {
   ConsumableAsyncQueue,
   consumableAsyncQueue,
   derivedSignal as deriveSignal,
+  safelyClose,
 } from "../common/utils.ts";
 import {
   SocksDestinationAddress,
@@ -94,7 +100,9 @@ type ListeningProxy = {
 
 type HandledConnection = {
   expired: boolean;
+
   readonly connection: Deno.TcpConn;
+  readonly log: Logger;
 };
 type ListeningConnection = {
   connection: TunnelRelayClientOptions["services"]["connect"][number];
@@ -230,6 +238,7 @@ export async function createTunnelRelayClient(
             const handledConnection: HandledConnection = {
               expired: false,
               connection,
+              log,
             };
 
             const handleTimeout = setTimeout(() => {
@@ -279,7 +288,8 @@ export async function createTunnelRelayClient(
     try {
       await handleSocket({
         socket,
-        options: { ...options, signal: socketAbort.signal },
+        options: options,
+        signal: socketAbort.signal,
         log,
         connected: () => {
           connectedOnce = true;
@@ -303,7 +313,8 @@ export async function createTunnelRelayClient(
 
 type HandleSocketOptions = {
   socket: WebSocket;
-  options: Omit<TunnelRelayClientOptions, "log">;
+  options: Omit<TunnelRelayClientOptions, "log" | "signal">;
+  signal: AbortSignal;
   log: Logger;
   connected: () => void;
 
@@ -315,134 +326,175 @@ type HandleSocketOptions = {
 async function handleSocket({
   socket,
   options,
+  signal: socketSignal,
   log,
   connected: notifyConnected,
   services,
 }: HandleSocketOptions) {
-  try {
-    using queue = consumableAsyncQueue<ArrayBuffer>({ signal: options.signal });
-    const ready = Promise.withResolvers<void>();
+  using queue = consumableAsyncQueue<ArrayBuffer>({ signal: socketSignal });
+  const ready = Promise.withResolvers<void>();
 
-    log.trace(`configuring 'ready' listeners`);
+  log.trace(`configuring 'ready' listeners`);
 
-    socket.onmessage = ({ data }) => {
-      if (data instanceof ArrayBuffer) queue.push(data);
-    };
-    socket.onopen = () =>
-      queue.aborted() ? ready.reject(queue.abortReason()) : ready.resolve();
-    socket.onclose = () =>
-      ready.reject(new TunnelClientError({ reason: "socket-closed" }));
-    socket.onerror = (event) =>
-      ready.reject(
-        new TunnelClientError({
-          reason: "socket-error",
-          error: ("error" in event) ? event.error : event,
-        }),
-      );
+  socket.onmessage = ({ data }) => {
+    if (data instanceof ArrayBuffer) queue.push(data);
+  };
+  socket.onopen = () =>
+    queue.aborted() ? ready.reject(queue.abortReason()) : ready.resolve();
+  socket.onclose = () =>
+    ready.reject(new TunnelClientError({ reason: "socket-closed" }));
+  socket.onerror = (event) =>
+    ready.reject(
+      new TunnelClientError({
+        reason: "socket-error",
+        error: ("error" in event) ? event.error : event,
+      }),
+    );
 
-    log.trace(`waiting for socket to connect`);
-    await ready.promise;
-    log.debug(`connected`);
+  log.trace(`waiting for socket to connect`);
+  await ready.promise;
+  log.debug(`connected`);
 
-    log.trace(`configuring 'abort' listeners`);
-    socket.onopen = null;
-    socket.onclose = () =>
-      queue.abortWith(new TunnelClientError({ reason: "socket-closed" }));
-    socket.onerror = (event) =>
-      queue.abortWith(
-        new TunnelClientError({
-          reason: "socket-error",
-          error: ("error" in event) ? event.error : event,
-        }),
-      );
+  log.trace(`configuring 'abort' listeners`);
+  socket.onopen = null;
+  socket.onclose = () =>
+    queue.abortWith(new TunnelClientError({ reason: "socket-closed" }));
+  socket.onerror = (event) =>
+    queue.abortWith(
+      new TunnelClientError({
+        reason: "socket-error",
+        error: ("error" in event) ? event.error : event,
+      }),
+    );
 
-    log.trace(`perform handshake`);
-    const security = options.auth.mode === "basic"
-      ? await handleBasicAuthenticationClient(
-        socket,
-        queue,
-        options.auth,
-        prefixLogger(log, "[basic]"),
-      )
-      : await handleAdvancedAuthenticationClient(
-        socket,
-        queue,
-        options.auth,
-        prefixLogger(log, "[advanced]"),
-      );
+  log.trace(`perform handshake`);
+  const security = options.auth.mode === "basic"
+    ? await handleBasicAuthenticationClient(
+      socket,
+      queue,
+      options.auth,
+      prefixLogger(log, "[basic]"),
+    )
+    : await handleAdvancedAuthenticationClient(
+      socket,
+      queue,
+      options.auth,
+      prefixLogger(log, "[advanced]"),
+    );
 
-    notifyConnected();
+  notifyConnected();
 
-    log.trace(`configure decrypted queue`);
-    using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
-      signal: options.signal,
-      map: (packet, signal) => security.decrypt(packet, signal),
-    });
+  log.trace(`configure decrypted queue`);
+  using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
+    signal: socketSignal,
+    map: (packet, queueSignal) => security.decrypt(packet, queueSignal),
+  });
 
-    asyncAction(async (signal) => {
-      try {
-        while (!signal.aborted) {
-          const encryptedPacket = await queue.shift({ signal });
-          if (decryptQueue.queued() >= options.performance.decryptQueueSize) {
-            await decryptQueue.waitFor("dequeue", { signal });
-          }
-
-          if (!signal.aborted) {
-            decryptQueue.push(encryptedPacket);
-          }
-        }
-      } catch (error) {
-        if (!queue.aborted()) {
-          queue.abortWith(
-            (error instanceof TunnelClientError)
-              ? error
-              : new TunnelClientError({ reason: "unknown-error", error }),
-          );
+  asyncAction(async (actionSignal) => {
+    try {
+      while (!actionSignal.aborted) {
+        const encryptedPacket = await queue.shift({ signal: actionSignal });
+        if (decryptQueue.queued() >= options.performance.decryptQueueSize) {
+          await decryptQueue.waitFor("dequeue", { signal: actionSignal });
         }
 
-        decryptQueue.abortWith(queue.abortReason());
+        if (!actionSignal.aborted) {
+          decryptQueue.push(encryptedPacket);
+        }
       }
-    }, { signal: options.signal });
+    } catch (error) {
+      if (!queue.aborted()) {
+        queue.abortWith(
+          (error instanceof TunnelClientError)
+            ? error
+            : new TunnelClientError({ reason: "unknown-error", error }),
+        );
+      }
 
+      decryptQueue.abortWith(queue.abortReason());
+    }
+  }, { signal: socketSignal });
+
+  let localUID = 1;
+
+  const serviceConnections = new Map<number, {
+    connected: boolean;
+
+    readonly uid: number;
+    readonly tunnel: ConnectionTunnel;
+
+    readonly onConnect?: () => void;
+    readonly onError?: (reason: ConnectionTunnelErrorReason) => void;
+  }>();
+
+  try {
     services.proxies.forEach((proxy) =>
-      asyncAction(async (signal) => {
-        while (!signal.aborted) {
-          const request = await proxy.handle.shift({ signal });
-          if (request.expired) continue;
+      asyncAction(async (actionSignal) => {
+        while (!actionSignal.aborted) {
+          const request = await proxy.handle.shift({ signal: actionSignal });
+          if (request.expired || actionSignal.aborted) continue;
 
-          // TODO: Handle proxy request
-          try {
-            const connection = await Deno.connect({
-              hostname: request.destination.host,
-              port: request.destination.port,
-            });
-            request.emit({
-              ok: true,
-              tunnel: connection,
-            });
-          } catch (error) {
-            request.emit({
-              ok: false,
-              error: "general-failure",
-            });
-          }
+          const uid = localUID++;
+
+          const requestLog = prefixLogger(request.log, `[${uid}]`);
+          requestLog.trace(`creating connection`);
+
+          const [relayTunnel, proxyTunnel] = createConnectionTunnelPair();
+
+          serviceConnections.set(uid, {
+            connected: false,
+
+            uid,
+            tunnel: relayTunnel,
+
+            onConnect: () => {
+              requestLog.trace(`connected`);
+              request.emit({ ok: true, tunnel: proxyTunnel });
+            },
+            onError: (reason) => {
+              requestLog.trace(`connection failed due to '${reason}'`);
+              request.emit({ ok: false, error: reason });
+            },
+          });
+
+          // TODO: Send connect request
         }
-      }, { signal: options.signal })
+      }, { signal: socketSignal })
     );
     services.connections.forEach((connection) =>
-      asyncAction(async (signal) => {
-        while (!signal.aborted) {
-          const request = await connection.handle.shift({ signal });
-          if (request.expired) continue;
+      asyncAction(async (actionSignal) => {
+        while (!actionSignal.aborted) {
+          const request = await connection.handle.shift({
+            signal: actionSignal,
+          });
+          if (request.expired || actionSignal.aborted) continue;
 
-          // TODO: Handle connect request
+          const uid = localUID++;
+
+          const requestLog = prefixLogger(request.log, `[${uid}]`);
+          requestLog.trace(`creating connection`);
+
+          serviceConnections.set(uid, {
+            connected: false,
+
+            uid,
+            tunnel: request.connection,
+
+            onConnect: () => {
+              requestLog.trace(`connected`);
+            },
+            onError: (reason) => {
+              requestLog.trace(`connection failed due to '${reason}'`);
+            },
+          });
+
+          // TODO: Send connect request
         }
-      }, { signal: options.signal })
+      }, { signal: socketSignal })
     );
 
     log.trace(`ready, waiting commands`);
-
-    while (!options.signal.aborted) {
+    while (!socketSignal.aborted) {
       const buffer = safeReader(
         await decryptQueue.shift(),
         () => new TunnelClientError({ reason: "buffer-too-short" }),
@@ -461,6 +513,9 @@ async function handleSocket({
       }
     }
   } finally {
-    // TODO: Close all live connections
+    serviceConnections.forEach((connection) => {
+      if (!connection.connected) connection.onError?.("general-failure");
+      safelyClose(connection.tunnel);
+    });
   }
 }

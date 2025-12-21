@@ -1,5 +1,5 @@
+import { ConnectionTunnelErrorReason } from "./common/communication.ts";
 import { createLogger } from "./common/log.ts";
-import { SocksTunnelError } from "./proxy/socks.common.ts";
 import { createSocksServer } from "./proxy/socks.server.ts";
 
 const controller = new AbortController();
@@ -30,7 +30,7 @@ await createSocksServer({
 
       return { ok: true, tunnel };
     } catch (err) {
-      let error: SocksTunnelError;
+      let error: ConnectionTunnelErrorReason;
       if (err instanceof Deno.errors.ConnectionRefused) {
         error = "connection-refused";
       } else if (err instanceof Deno.errors.NetworkUnreachable) {

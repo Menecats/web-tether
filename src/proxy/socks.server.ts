@@ -1,11 +1,11 @@
 import { deadline } from "@std/async";
+import { ConnectionTunnel } from "../common/communication.ts";
 import { Logger, prefixLogger } from "../common/log.ts";
 import { concatBuffers, safelyClose } from "../common/utils.ts";
 import {
   SOCKS_HANDSHAKE_INIT_TIMEOUT,
   SocksHandler,
   SocksHandlerBufferRequest,
-  SocksTunnel,
   SocksTunneler,
 } from "./socks.common.ts";
 import { handleSocks4, Socks4Version } from "./socks4.handler.ts";
@@ -111,7 +111,7 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
 
 export async function handleSocksConnection(
   options: CreateSocksServerOptions,
-  connection: SocksTunnel,
+  connection: ConnectionTunnel,
 ) {
   let workingBuffer = new Uint8Array(0);
   let bufferRequest: SocksHandlerBufferRequest = { timeout: 0, size: 0 };
@@ -125,7 +125,7 @@ export async function handleSocksConnection(
     handshakeWriter,
   );
 
-  let tunnel: SocksTunnel | undefined;
+  let tunnel: ConnectionTunnel | undefined;
 
   try {
     handshake:
