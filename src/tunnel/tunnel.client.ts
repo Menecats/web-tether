@@ -33,6 +33,7 @@ import {
   RelayCommand,
   RelayConnectReply,
   RelayLinkReply,
+  RelayServiceConnectionReason,
   RelayServiceType,
 } from "./tunnel.relay.ts";
 
@@ -476,7 +477,10 @@ async function handleSocket({
     readonly onError?: (reason: ConnectionTunnelErrorReason) => void;
   }>();
   const serviceLinks = new Map<number, {
-    // TODO: service links type
+    connected: boolean;
+
+    readonly uid: number;
+    readonly tunnel: Promise<ConnectionTunnel | undefined>;
   }>();
 
   const decoder = new TextDecoder();
@@ -497,6 +501,7 @@ async function handleSocket({
             if (request.expired || actionSignal.aborted) continue;
 
             const uid = localUID++;
+            const encodedUID = encodeInt32(uid);
 
             const requestLog = prefixLogger(request.log, `[${uid}]`);
             requestLog.trace(`creating connection`);
@@ -512,6 +517,32 @@ async function handleSocket({
               onConnect: () => {
                 requestLog.trace(`connected`);
                 request.emit({ ok: true, tunnel: proxyTunnel });
+
+                asyncAction(async (connectionSignal) => {
+                  const reader = relayTunnel.readable.getReader();
+                  try {
+                    while (!connectionSignal.aborted) {
+                      const buffer = await reader.read();
+
+                      if (buffer.value) {
+                        const output = new Uint8Array(5 + buffer.value.length);
+                        output[0] = RelayCommand.SERVICE_STREAM;
+                        output.set(encodedUID, 1);
+                        output.set(buffer.value, 5);
+                        await write(output);
+                      }
+
+                      if (buffer.done) break;
+                    }
+
+                    // TODO: Notify clean closure
+                  } catch (err) {
+                    // TODO: Notify error closure
+                  } finally {
+                    reader.releaseLock();
+                    safelyClose(relayTunnel);
+                  }
+                }, { signal: actionSignal });
               },
               onError: (reason) => {
                 requestLog.trace(`connection failed due to '${reason}'`);
@@ -524,7 +555,7 @@ async function handleSocket({
               await write(
                 new Uint8Array([
                   RelayCommand.SERVICE_CONNECT,
-                  ...encodeInt32(uid),
+                  ...encodedUID,
                   RelayServiceType.SOCKS_PROXY,
                   ...encodedService,
                   ...encodeWithUint16Length(
@@ -560,6 +591,7 @@ async function handleSocket({
             if (request.expired || actionSignal.aborted) continue;
 
             const uid = localUID++;
+            const encodedUID = encodeInt32(uid);
 
             const requestLog = prefixLogger(request.log, `[${uid}]`);
             requestLog.trace(`creating connection`);
@@ -572,6 +604,32 @@ async function handleSocket({
 
               onConnect: () => {
                 requestLog.trace(`connected`);
+
+                asyncAction(async (connectionSignal) => {
+                  const reader = request.connection.readable.getReader();
+                  try {
+                    while (!connectionSignal.aborted) {
+                      const buffer = await reader.read();
+
+                      if (buffer.value) {
+                        const output = new Uint8Array(5 + buffer.value.length);
+                        output[0] = RelayCommand.SERVICE_STREAM;
+                        output.set(encodedUID, 1);
+                        output.set(buffer.value, 5);
+                        await write(output);
+                      }
+
+                      if (buffer.done) break;
+                    }
+
+                    // TODO: Notify clean closure
+                  } catch (err) {
+                    // TODO: Notify error closure
+                  } finally {
+                    reader.releaseLock();
+                    safelyClose(request.connection);
+                  }
+                }, { signal: actionSignal });
               },
               onError: (reason) => {
                 requestLog.trace(`connection failed due to '${reason}'`);
@@ -581,7 +639,7 @@ async function handleSocket({
             await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
-                ...encodeInt32(uid),
+                ...encodedUID,
                 RelayServiceType.RAW_SOCKET,
                 ...encodedService,
               ]),
@@ -593,7 +651,7 @@ async function handleSocket({
       }, { signal: socketSignal });
     });
 
-    {
+    if (registeredServices.size) {
       await write(
         new Uint8Array([
           RelayCommand.SERVICE_BIND,
@@ -704,9 +762,96 @@ async function handleSocket({
               ]),
             );
           } else {
-            log.trace(`new link request [${uid}] for service ${name}`);
+            const serviceLog = prefixLogger(log, `[link:${uid}/${name}]`);
+            serviceLog.trace(`requested`);
 
-            // TODO: create tunnel connection
+            let destination: Deno.ConnectOptions;
+            if (service.type === RelayServiceType.SOCKS_PROXY) {
+              const host = decoder.decode(buffer.data(buffer.uint16()));
+              const port = buffer.uint16();
+
+              destination = {
+                hostname: host,
+                port: port,
+                signal: socketSignal,
+              };
+            } else {
+              destination = {
+                ...service.destination,
+                signal: socketSignal,
+              };
+            }
+
+            serviceLog.trace("connecting");
+            const link = {
+              connected: false,
+
+              uid,
+              tunnel: Deno
+                .connect(destination)
+                .then((connection) => {
+                  serviceLog.trace("connected");
+                  link.connected = true;
+                  asyncAction(async (connectionSignal) => {
+                    serviceLog.trace("processing buffer");
+                    try {
+                      await write(
+                        new Uint8Array([
+                          RelayCommand.SERVICE_LINK,
+                          ...encodedUID,
+                          RelayLinkReply.SUCCESS,
+                        ]),
+                      );
+
+                      const reader = connection.readable.getReader();
+                      try {
+                        while (!connectionSignal.aborted) {
+                          const buffer = await reader.read();
+                          if (buffer.value) {
+                            const output = new Uint8Array(
+                              5 + buffer.value.length,
+                            );
+                            output[0] = RelayCommand.SERVICE_STREAM;
+                            output.set(encodedUID, 1);
+                            output.set(buffer.value, 5);
+
+                            await write(output);
+                          }
+
+                          if (buffer.done) break;
+                        }
+
+                        // Notify clean closure
+                      } catch (err) {
+                        // Notify error closure
+                      } finally {
+                        reader.releaseLock();
+                      }
+                    } catch (err) {
+                      serviceLog.trace("processing error", err);
+                    }
+                  }, { signal: socketSignal });
+                  return connection;
+                })
+                .catch((error) => {
+                  serviceLog.trace("connection failed", error);
+                  serviceLinks.delete(uid);
+
+                  write(
+                    new Uint8Array([
+                      RelayCommand.SERVICE_LINK,
+                      ...encodedUID,
+                      RelayLinkReply.CONNECT_GENERAL_FAILURE, // TODO: Reason
+                    ]),
+                  ).catch((error) => {
+                    serviceLog.trace("error notifying failure", error);
+                  });
+
+                  return undefined;
+                }),
+            };
+
+            serviceLinks.set(uid, link);
           }
 
           break;
@@ -716,17 +861,48 @@ async function handleSocket({
           const uid = buffer.int32();
           const reason = buffer.uint8();
 
-          // TODO: Handle service closed
+          log.trace(
+            `closing connection [${uid}] with reason '${
+              printEnum(RelayServiceConnectionReason, reason)
+            }'`,
+          );
+
+          if (uid > 0) {
+            const connection = serviceConnections.get(uid);
+            if (connection) {
+              if (!connection.connected) {
+                connection.onError?.("general-failure");
+              }
+              connection.tunnel.close();
+            }
+            serviceConnections.delete(uid);
+          } else if (uid < 0) {
+            const connection = serviceLinks.get(uid);
+            if (connection) {
+              connection.tunnel.then((c) => c?.close()).catch(() => {});
+            }
+            serviceLinks.delete(uid);
+          }
           break;
         }
+
         case RelayCommand.SERVICE_STREAM: {
+          // TODO: Should use an async action to handle this parts
+
+          const encodedUID = buffer.data(4, { ahead: true });
           const uid = buffer.int32();
           const data = buffer.dataLeft();
 
           if (uid > 0) {
             const connection = serviceConnections.get(uid);
             if (!connection) {
-              // TODO: notify connection gone
+              await write(
+                new Uint8Array([
+                  RelayCommand.SERVICE_CLOSED,
+                  ...encodedUID,
+                  RelayServiceConnectionReason.CONNECTION_GONE,
+                ]),
+              );
             } else {
               const writer = connection.tunnel.writable.getWriter();
               await writer.write(data);
@@ -735,12 +911,30 @@ async function handleSocket({
           } else if (uid < 0) {
             const connection = serviceLinks.get(uid);
             if (!connection) {
-              // TODO: notify connection gone
+              await write(
+                new Uint8Array([
+                  RelayCommand.SERVICE_CLOSED,
+                  ...encodedUID,
+                  RelayServiceConnectionReason.CONNECTION_GONE,
+                ]),
+              );
             } else {
-              // TODO: Write
+              const tunnel = await connection.tunnel;
+              if (tunnel) {
+                const writer = tunnel.writable.getWriter();
+                await writer.write(data);
+                writer.releaseLock();
+              } else {
+                await write(
+                  new Uint8Array([
+                    RelayCommand.SERVICE_CLOSED,
+                    ...encodedUID,
+                    RelayServiceConnectionReason.CONNECTION_GONE,
+                  ]),
+                );
+              }
             }
           }
-          // TODO: Handle service stream
           break;
         }
 
@@ -768,6 +962,9 @@ async function handleSocket({
     serviceConnections.forEach((connection) => {
       if (!connection.connected) connection.onError?.("general-failure");
       safelyClose(connection.tunnel);
+    });
+    serviceLinks.forEach((connection) => {
+      connection.tunnel.then(safelyClose).catch(() => {});
     });
   }
 }

@@ -13,6 +13,9 @@ Deno.addSignalListener("SIGINT", () => {
 const username = "test";
 const password = "test";
 
+const isClient = Deno.args.includes("client");
+const isServer = Deno.args.includes("server");
+
 await createTunnelRelayClient({
   endpoint: new URL("ws://localhost:3456/relay"),
 
@@ -31,10 +34,12 @@ await createTunnelRelayClient({
   signal: controller.signal,
 
   services: {
-    proxyServer: { enabled: true, service: "proxy" },
-    proxyClient: [
-      { service: "proxy", address: { port: 1080 } },
-    ],
+    proxyServer: isServer
+      ? { enabled: true, service: "proxy" }
+      : { enabled: false },
+    proxyClient: isClient
+      ? [{ service: "proxy", address: { port: 1080 } }]
+      : [],
     bind: [],
     connect: [],
   },

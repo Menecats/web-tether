@@ -75,7 +75,6 @@ export type RelayService = {
   service: string;
 };
 
-export type RelayServiceConnectionStatus = "requested";
 export enum RelayServiceConnectionReason {
   TRANSPORT_SOCKET_EOS = 0x00,
   TRANSPORT_SOCKET_CLOSED = 0x01,
@@ -85,8 +84,6 @@ export enum RelayServiceConnectionReason {
   UNKNOWN = 0xFF,
 }
 export type RelayServiceConnection = {
-  status: RelayServiceConnectionStatus;
-
   readonly server: {
     socket: WebSocket;
     uid: number;
@@ -714,8 +711,6 @@ export function createRelay(): Relay {
       const serverUid = --server.relayCounter;
 
       const connection: RelayServiceConnection = {
-        status: "requested",
-
         client: { socket: clientSocket, uid: clientUid, write: client.write },
         server: { socket: serverSocket, uid: serverUid, write: server.write },
 
