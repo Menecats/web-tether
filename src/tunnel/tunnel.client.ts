@@ -6,12 +6,18 @@ import {
   createConnectionTunnelPair,
 } from "../common/communication.ts";
 import { Logger, prefixLogger } from "../common/log.ts";
-import { safeReader } from "../common/safe-buffer.ts";
+import {
+  encodeInt32,
+  encodeUint16,
+  encodeWithUint16Length,
+  safeReader,
+} from "../common/safe-buffer.ts";
 import { verifyCryptoKeyPair } from "../common/security.ts";
 import {
   ConsumableAsyncQueue,
   consumableAsyncQueue,
-  derivedSignal as deriveSignal,
+  deriveSignal,
+  printEnum,
   safelyClose,
 } from "../common/utils.ts";
 import {
@@ -22,7 +28,13 @@ import { createSocksServer } from "../proxy/socks.server.ts";
 import { handleAdvancedAuthenticationClient } from "./auth/client/advanced-authentication.client.ts";
 import { handleBasicAuthenticationClient } from "./auth/client/basic-authentication.client.ts";
 import { TunnelClientError } from "./tunnel.errors.ts";
-import { RelayCommand } from "./tunnel.relay.ts";
+import {
+  RelayBindReply,
+  RelayCommand,
+  RelayConnectReply,
+  RelayLinkReply,
+  RelayServiceType,
+} from "./tunnel.relay.ts";
 
 async function validateConfiguration(options: TunnelRelayClientOptions) {
   if (options.auth.mode === "advanced") {
@@ -262,53 +274,61 @@ export async function createTunnelRelayClient(
   let connectedOnce = false;
   let failed = 0;
 
-  while (!options.signal.aborted) {
-    if (failed) {
-      const waitDelay = options.performance.reconnectDelay({
-        attempts: failed,
-        valid: connectedOnce,
-      });
+  try {
+    while (!options.signal.aborted) {
+      if (failed) {
+        const waitDelay = options.performance.reconnectDelay({
+          attempts: failed,
+          valid: connectedOnce,
+        });
 
-      options.log.debug(
-        `delay connection after #${failed} failed attempt(s), waiting ${waitDelay}ms`,
-      );
+        options.log.debug(
+          `delay connection after #${failed} failed attempt(s), waiting ${waitDelay}ms`,
+        );
 
-      await delay(waitDelay, { signal: options.signal });
+        await delay(waitDelay, { signal: options.signal });
+      }
+
+      options.log.debug(`connecting to '${options.endpoint}'`);
+
+      const log = prefixLogger(options.log, "[socket]");
+
+      const socket = new WebSocket(options.endpoint);
+      socket.binaryType = "arraybuffer";
+
+      const socketAbort = deriveSignal(options.signal);
+
+      try {
+        await handleSocket({
+          socket,
+          options: options,
+          signal: socketAbort.signal,
+          log,
+          connected: () => {
+            connectedOnce = true;
+            failed = 0;
+          },
+
+          services: {
+            proxies: listeningProxies,
+            connections: listeningConnections,
+          },
+        });
+      } catch (error) {
+        log.error("error handling socket", error);
+        socketAbort.abort(error);
+        failed++;
+      } finally {
+        socket.close();
+        if (!socketAbort.signal.aborted) {
+          socketAbort.abort(new TunnelClientError({ reason: "socket-closed" }));
+        }
+      }
     }
-
-    options.log.debug(`connecting to '${options.endpoint}'`);
-
-    const log = prefixLogger(options.log, "[socket]");
-
-    const socket = new WebSocket(options.endpoint);
-    socket.binaryType = "arraybuffer";
-
-    const socketAbort = deriveSignal(options.signal);
-
-    try {
-      await handleSocket({
-        socket,
-        options: options,
-        signal: socketAbort.signal,
-        log,
-        connected: () => {
-          connectedOnce = true;
-          failed = 0;
-        },
-
-        services: {
-          proxies: listeningProxies,
-          connections: listeningConnections,
-        },
-      });
-    } catch (err) {
-      log.error("error handling socket", err);
-      failed++;
-    } finally {
-      socket.close();
-      socketAbort.abort(new TunnelClientError({ reason: "socket-closed" }));
-    }
+  } catch (err) {
+    options.log.error("error while handling connection loop", err);
   }
+  options.log.trace("connection loop done");
 }
 
 type HandleSocketOptions = {
@@ -382,6 +402,11 @@ async function handleSocket({
       prefixLogger(log, "[advanced]"),
     );
 
+  const write = (content: Uint8Array<ArrayBuffer> | ArrayBuffer) =>
+    security.encrypt(content, socketSignal).then((buffer) =>
+      socket.send(buffer)
+    );
+
   notifyConnected();
 
   log.trace(`configure decrypted queue`);
@@ -417,6 +442,30 @@ async function handleSocket({
 
   let localUID = 1;
 
+  const registeredServices = new Map<
+    string,
+    | {
+      service: string;
+      type: RelayServiceType.RAW_SOCKET;
+      destination: Omit<Deno.ConnectOptions, "signal">;
+    }
+    | { service: string; type: RelayServiceType.SOCKS_PROXY }
+  >();
+
+  if (options.services.proxyServer.enabled) {
+    registeredServices.set(options.services.proxyServer.service, {
+      service: options.services.proxyServer.service,
+      type: RelayServiceType.SOCKS_PROXY,
+    });
+  }
+  options.services.bind.forEach((bind) => {
+    registeredServices.set(bind.service, {
+      service: bind.service,
+      type: RelayServiceType.RAW_SOCKET,
+      destination: bind.destination,
+    });
+  });
+
   const serviceConnections = new Map<number, {
     connected: boolean;
 
@@ -426,72 +475,136 @@ async function handleSocket({
     readonly onConnect?: () => void;
     readonly onError?: (reason: ConnectionTunnelErrorReason) => void;
   }>();
+  const serviceLinks = new Map<number, {
+    // TODO: service links type
+  }>();
+
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
 
   try {
-    services.proxies.forEach((proxy) =>
+    services.proxies.forEach((proxy) => {
+      const serviceLog = prefixLogger(log, `[${proxy.proxy.service}]`);
+      const encodedService = encodeWithUint16Length(
+        encoder.encode(proxy.proxy.service),
+      );
       asyncAction(async (actionSignal) => {
-        while (!actionSignal.aborted) {
-          const request = await proxy.handle.shift({ signal: actionSignal });
-          if (request.expired || actionSignal.aborted) continue;
+        try {
+          while (!actionSignal.aborted) {
+            serviceLog.trace("waiting for proxy connection");
 
-          const uid = localUID++;
+            const request = await proxy.handle.shift({ signal: actionSignal });
+            if (request.expired || actionSignal.aborted) continue;
 
-          const requestLog = prefixLogger(request.log, `[${uid}]`);
-          requestLog.trace(`creating connection`);
+            const uid = localUID++;
 
-          const [relayTunnel, proxyTunnel] = createConnectionTunnelPair();
+            const requestLog = prefixLogger(request.log, `[${uid}]`);
+            requestLog.trace(`creating connection`);
 
-          serviceConnections.set(uid, {
-            connected: false,
+            const [relayTunnel, proxyTunnel] = createConnectionTunnelPair();
 
-            uid,
-            tunnel: relayTunnel,
+            serviceConnections.set(uid, {
+              connected: false,
 
-            onConnect: () => {
-              requestLog.trace(`connected`);
-              request.emit({ ok: true, tunnel: proxyTunnel });
-            },
-            onError: (reason) => {
-              requestLog.trace(`connection failed due to '${reason}'`);
-              request.emit({ ok: false, error: reason });
-            },
-          });
+              uid,
+              tunnel: relayTunnel,
 
-          // TODO: Send connect request
+              onConnect: () => {
+                requestLog.trace(`connected`);
+                request.emit({ ok: true, tunnel: proxyTunnel });
+              },
+              onError: (reason) => {
+                requestLog.trace(`connection failed due to '${reason}'`);
+                request.emit({ ok: false, error: reason });
+              },
+            });
+
+            try {
+              requestLog.trace(`sending connection request`);
+              await write(
+                new Uint8Array([
+                  RelayCommand.SERVICE_CONNECT,
+                  ...encodeInt32(uid),
+                  RelayServiceType.SOCKS_PROXY,
+                  ...encodedService,
+                  ...encodeWithUint16Length(
+                    encoder.encode(request.destination.host),
+                  ),
+                  ...encodeUint16(request.destination.port),
+                ]),
+              );
+            } catch (error) {
+              requestLog.error(`error sending connection request`, error);
+            }
+          }
+        } catch (err) {
+          serviceLog.error("error while listening service", err);
         }
-      }, { signal: socketSignal })
-    );
-    services.connections.forEach((connection) =>
+      }, { signal: socketSignal });
+    });
+    services.connections.forEach((connection) => {
+      const serviceLog = prefixLogger(
+        log,
+        `[${connection.connection.service}]`,
+      );
+      const encodedService = encodeWithUint16Length(
+        encoder.encode(connection.connection.service),
+      );
       asyncAction(async (actionSignal) => {
-        while (!actionSignal.aborted) {
-          const request = await connection.handle.shift({
-            signal: actionSignal,
-          });
-          if (request.expired || actionSignal.aborted) continue;
+        try {
+          while (!actionSignal.aborted) {
+            serviceLog.trace("waiting for raw connection");
+            const request = await connection.handle.shift({
+              signal: actionSignal,
+            });
+            if (request.expired || actionSignal.aborted) continue;
 
-          const uid = localUID++;
+            const uid = localUID++;
 
-          const requestLog = prefixLogger(request.log, `[${uid}]`);
-          requestLog.trace(`creating connection`);
+            const requestLog = prefixLogger(request.log, `[${uid}]`);
+            requestLog.trace(`creating connection`);
 
-          serviceConnections.set(uid, {
-            connected: false,
+            serviceConnections.set(uid, {
+              connected: false,
 
-            uid,
-            tunnel: request.connection,
+              uid,
+              tunnel: request.connection,
 
-            onConnect: () => {
-              requestLog.trace(`connected`);
-            },
-            onError: (reason) => {
-              requestLog.trace(`connection failed due to '${reason}'`);
-            },
-          });
+              onConnect: () => {
+                requestLog.trace(`connected`);
+              },
+              onError: (reason) => {
+                requestLog.trace(`connection failed due to '${reason}'`);
+              },
+            });
 
-          // TODO: Send connect request
+            await write(
+              new Uint8Array([
+                RelayCommand.SERVICE_CONNECT,
+                ...encodeInt32(uid),
+                RelayServiceType.RAW_SOCKET,
+                ...encodedService,
+              ]),
+            );
+          }
+        } catch (err) {
+          serviceLog.error("error while listening service", err);
         }
-      }, { signal: socketSignal })
-    );
+      }, { signal: socketSignal });
+    });
+
+    {
+      await write(
+        new Uint8Array([
+          RelayCommand.SERVICE_BIND,
+          ...encodeUint16(registeredServices.size),
+          ...[...registeredServices.values()].flatMap((binding) => [
+            binding.type,
+            ...encodeWithUint16Length(encoder.encode(binding.service)),
+          ]),
+        ]),
+      );
+    }
 
     log.trace(`ready, waiting commands`);
     while (!socketSignal.aborted) {
@@ -505,14 +618,153 @@ async function handleSocket({
       switch (command) {
         case RelayCommand.SOCKET_CLOSE: {
           log.debug(`received close command`);
-          socket.send(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
+          await write(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
           return;
         }
 
-          // TODO: Handle all commands
+        case RelayCommand.SERVICE_BIND: {
+          const reply = buffer.uint8();
+          if (reply === RelayBindReply.SUCCESS) {
+            log.debug("bind successful");
+          } else {
+            log.error(`bind errored: ${printEnum(RelayBindReply, reply)}`);
+          }
+          break;
+        }
+
+        case RelayCommand.SERVICE_CONNECT: {
+          log.trace(`received connect response`);
+
+          const uid = buffer.int32();
+          const reply = buffer.uint8();
+
+          log.trace(
+            `connect [${uid}]: ${printEnum(RelayConnectReply, reply)}`,
+          );
+
+          const service = serviceConnections.get(uid);
+          if (service) {
+            if (reply === RelayConnectReply.SUCCESS) {
+              service.connected = true;
+              service.onConnect?.();
+            } else if (!service.connected) {
+              let reason: ConnectionTunnelErrorReason;
+
+              switch (reply) {
+                case RelayConnectReply.CONNECT_NOT_ALLOWED:
+                  reason = "not-allowed";
+                  break;
+                case RelayConnectReply.CONNECT_NETWORK_UNREACHABLE:
+                  reason = "network-unreachable";
+                  break;
+                case RelayConnectReply.CONNECT_HOST_UNREACHABLE:
+                  reason = "host-unreachable";
+                  break;
+                case RelayConnectReply.CONNECT_CONNECTION_REFUSED:
+                  reason = "connection-refused";
+                  break;
+                case RelayConnectReply.CONNECT_TTL_EXPIRED:
+                  reason = "ttl-expired";
+                  break;
+                default:
+                  reason = "general-failure";
+              }
+
+              service.onError?.(reason);
+            }
+          }
+          break;
+        }
+
+        case RelayCommand.SERVICE_LINK: {
+          const encodedUID = buffer.data(4, { ahead: true });
+          const uid = buffer.int32();
+          const name = decoder.decode(buffer.data(buffer.uint16()));
+
+          if (uid >= 0 || serviceLinks.has(uid)) {
+            log.trace(`recevied link request, but has an invalid identifier`);
+            await write(
+              new Uint8Array([
+                RelayCommand.SERVICE_LINK,
+                ...encodedUID,
+                RelayLinkReply.SERVICE_INVALID_IDENTIFIER,
+              ]),
+            );
+            break;
+          }
+
+          const service = registeredServices.get(name);
+          if (!service) {
+            log.trace(`recevied link request, but the service is not known`);
+            await write(
+              new Uint8Array([
+                RelayCommand.SERVICE_LINK,
+                ...encodedUID,
+                RelayLinkReply.SERVICE_NOT_FOUND,
+              ]),
+            );
+          } else {
+            log.trace(`new link request [${uid}] for service ${name}`);
+
+            // TODO: create tunnel connection
+          }
+
+          break;
+        }
+
+        case RelayCommand.SERVICE_CLOSED: {
+          const uid = buffer.int32();
+          const reason = buffer.uint8();
+
+          // TODO: Handle service closed
+          break;
+        }
+        case RelayCommand.SERVICE_STREAM: {
+          const uid = buffer.int32();
+          const data = buffer.dataLeft();
+
+          if (uid > 0) {
+            const connection = serviceConnections.get(uid);
+            if (!connection) {
+              // TODO: notify connection gone
+            } else {
+              const writer = connection.tunnel.writable.getWriter();
+              await writer.write(data);
+              writer.releaseLock();
+            }
+          } else if (uid < 0) {
+            const connection = serviceLinks.get(uid);
+            if (!connection) {
+              // TODO: notify connection gone
+            } else {
+              // TODO: Write
+            }
+          }
+          // TODO: Handle service stream
+          break;
+        }
+
+        case RelayCommand.UNSUPPORTED: {
+          const unsupportedCommand = buffer.uint8();
+          log.error(
+            `server notified unsupported command: ${
+              printEnum(RelayCommand, unsupportedCommand)
+            }`,
+          );
+          break;
+        }
+
+        default: {
+          log.warn(
+            `received unsupported command: ${printEnum(RelayCommand, command)}`,
+          );
+          await write(new Uint8Array([RelayCommand.UNSUPPORTED, command]));
+          break;
+        }
       }
     }
   } finally {
+    log.trace(`closing connections before termination`);
     serviceConnections.forEach((connection) => {
       if (!connection.connected) connection.onError?.("general-failure");
       safelyClose(connection.tunnel);

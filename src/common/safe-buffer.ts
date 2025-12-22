@@ -22,22 +22,44 @@ export function encodeUint32(number: number): Uint8Array<ArrayBuffer> {
   return buffer;
 }
 
-export function encodeWithUint8Length(source: ArrayBuffer): Uint8Array {
+export function encodeInt8(number: number): Uint8Array<ArrayBuffer> {
+  const buffer = new Uint8Array(1);
+  new DataView(buffer.buffer).setInt8(0, number);
+  return buffer;
+}
+export function encodeInt16(number: number): Uint8Array<ArrayBuffer> {
+  const buffer = new Uint8Array(2);
+  new DataView(buffer.buffer).setInt16(0, number);
+  return buffer;
+}
+export function encodeInt32(number: number): Uint8Array<ArrayBuffer> {
+  const buffer = new Uint8Array(4);
+  new DataView(buffer.buffer).setInt32(0, number);
+  return buffer;
+}
+
+export function encodeWithUint8Length(
+  source: ArrayBuffer | Uint8Array<ArrayBuffer>,
+): Uint8Array {
   const buffer = new Uint8Array(1 + source.byteLength);
   new DataView(buffer.buffer).setUint8(0, source.byteLength);
-  buffer.set(new Uint8Array(source), 1);
+  buffer.set(source instanceof Uint8Array ? source : new Uint8Array(source), 1);
   return buffer;
 }
-export function encodeWithUint16Length(source: ArrayBuffer): Uint8Array {
+export function encodeWithUint16Length(
+  source: ArrayBuffer | Uint8Array<ArrayBuffer>,
+): Uint8Array {
   const buffer = new Uint8Array(2 + source.byteLength);
   new DataView(buffer.buffer).setUint16(0, source.byteLength);
-  buffer.set(new Uint8Array(source), 2);
+  buffer.set(source instanceof Uint8Array ? source : new Uint8Array(source), 2);
   return buffer;
 }
-export function encodeWithUint32Length(source: ArrayBuffer): Uint8Array {
+export function encodeWithUint32Length(
+  source: ArrayBuffer | Uint8Array<ArrayBuffer>,
+): Uint8Array {
   const buffer = new Uint8Array(4 + source.byteLength);
   new DataView(buffer.buffer).setUint16(0, source.byteLength);
-  buffer.set(new Uint8Array(source), 4);
+  buffer.set(source instanceof Uint8Array ? source : new Uint8Array(source), 4);
   return buffer;
 }
 
@@ -65,10 +87,30 @@ export function safeReader(
   };
   const uint32 = (options?: ReadOptions) => {
     ensureLength(buffer, offset + 4, outOfBufferError);
-    const value = view.getUint16(offset);
+    const value = view.getUint32(offset);
     if (!options?.ahead) offset += 4;
     return value;
   };
+
+  const int8 = (options?: ReadOptions) => {
+    ensureLength(buffer, offset + 1, outOfBufferError);
+    const value = view.getInt8(offset);
+    if (!options?.ahead) offset += 1;
+    return value;
+  };
+  const int16 = (options?: ReadOptions) => {
+    ensureLength(buffer, offset + 2, outOfBufferError);
+    const value = view.getInt16(offset);
+    if (!options?.ahead) offset += 2;
+    return value;
+  };
+  const int32 = (options?: ReadOptions) => {
+    ensureLength(buffer, offset + 4, outOfBufferError);
+    const value = view.getInt32(offset);
+    if (!options?.ahead) offset += 4;
+    return value;
+  };
+
   const data = (length: number, options?: ReadOptions) => {
     ensureLength(buffer, offset + length, outOfBufferError);
     const data = buffer.subarray(offset, offset + length);
@@ -85,6 +127,10 @@ export function safeReader(
     uint8,
     uint16,
     uint32,
+
+    int8,
+    int16,
+    int32,
 
     data,
     dataLeft,

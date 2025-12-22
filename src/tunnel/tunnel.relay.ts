@@ -1,8 +1,13 @@
 import { Logger, prefixLogger } from "../common/log.ts";
-import { encodeUint32, safeReader } from "../common/safe-buffer.ts";
+import {
+  encodeInt32,
+  encodeWithUint16Length,
+  safeReader,
+} from "../common/safe-buffer.ts";
 import {
   ConsumableAsyncQueue,
   consumableAsyncQueue,
+  printEnum,
   safelyClose,
 } from "../common/utils.ts";
 import { handleAdvencedAuthenticationServer } from "./auth/server/advanced-authentication.server.ts";
@@ -20,10 +25,32 @@ export enum RelayBindReply {
   UNAUTHORIZED = 0xFE,
 }
 export enum RelayConnectReply {
+  SUCCESS = 0x00,
+
+  CONNECT_GENERAL_FAILURE = 0x10,
+  CONNECT_NOT_ALLOWED = 0x11,
+  CONNECT_NETWORK_UNREACHABLE = 0x12,
+  CONNECT_HOST_UNREACHABLE = 0x13,
+  CONNECT_CONNECTION_REFUSED = 0x14,
+  CONNECT_TTL_EXPIRED = 0x15,
+
   SERVICE_INVALID_TYPE = 0x32,
   SERVICE_NOT_FOUND = 0x33,
-  INVALID_IDENTIFIER = 0x34,
-  UNAUTHORIZED = 0xFE,
+  SERVICE_INVALID_IDENTIFIER = 0x34,
+  SERVICE_UNAUTHORIZED = 0xFE,
+}
+export enum RelayLinkReply {
+  SUCCESS = 0x00,
+
+  CONNECT_GENERAL_FAILURE = 0x10,
+  CONNECT_NOT_ALLOWED = 0x11,
+  CONNECT_NETWORK_UNREACHABLE = 0x12,
+  CONNECT_HOST_UNREACHABLE = 0x13,
+  CONNECT_CONNECTION_REFUSED = 0x14,
+  CONNECT_TTL_EXPIRED = 0x15,
+
+  SERVICE_NOT_FOUND = 0x33,
+  SERVICE_INVALID_IDENTIFIER = 0x34,
 }
 
 export enum RelayCommand {
@@ -60,11 +87,20 @@ export enum RelayServiceConnectionReason {
 export type RelayServiceConnection = {
   status: RelayServiceConnectionStatus;
 
-  readonly server: { socket: WebSocket; uid: number };
-  readonly client: { socket: WebSocket; uid: number };
+  readonly server: {
+    socket: WebSocket;
+    uid: number;
+    write: (content: Uint8Array<ArrayBuffer> | ArrayBuffer) => Promise<void>;
+  };
+  readonly client: {
+    socket: WebSocket;
+    uid: number;
+    write: (content: Uint8Array<ArrayBuffer> | ArrayBuffer) => Promise<void>;
+  };
 
-  close(source: WebSocket, reason: RelayServiceConnectionReason): void;
-  forward(source: WebSocket, buffer: Uint8Array): void;
+  notify: (source: WebSocket, reply: RelayLinkReply) => Promise<void>;
+  close(source: WebSocket, reason: RelayServiceConnectionReason): Promise<void>;
+  forward(source: WebSocket, buffer: Uint8Array<ArrayBuffer>): Promise<void>;
 };
 
 export type Relay = {
@@ -75,9 +111,17 @@ export type Relay = {
     socket: WebSocket,
     uid: number,
   ) => RelayServiceConnection | undefined;
-  link: (socket: WebSocket, service: string, uid: number) => void;
+  link: (
+    socket: WebSocket,
+    service: string,
+    uid: number,
+    metadata: Uint8Array<ArrayBuffer>,
+  ) => Promise<void>;
 
-  connected: (socket: WebSocket) => void;
+  connected: (
+    socket: WebSocket,
+    write: (content: Uint8Array<ArrayBuffer> | ArrayBuffer) => Promise<void>,
+  ) => void;
   disconnected: (socket: WebSocket) => void;
 };
 
@@ -243,6 +287,11 @@ export async function handleSocketRelay(
       return;
     }
 
+    const write = (content: Uint8Array<ArrayBuffer> | ArrayBuffer) =>
+      security.encrypt(content, options.signal).then((buffer) =>
+        socket.send(buffer)
+      );
+
     options.log.trace(`setting up decrypted queue`);
     using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
       signal: options.signal,
@@ -274,7 +323,7 @@ export async function handleSocketRelay(
     const decoder = new TextDecoder();
     let serviceBound = false;
 
-    relay.connected(socket);
+    relay.connected(socket, write);
 
     options.log.trace(`ready, waiting commands`);
     while (!options.signal.aborted) {
@@ -288,13 +337,14 @@ export async function handleSocketRelay(
       switch (command) {
         case RelayCommand.SOCKET_CLOSE: {
           options.log.debug(`received close command`);
-          socket.send(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
+          await write(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
           return;
         }
 
         case RelayCommand.SERVICE_BIND: {
           if (!security.permissions.bind.enabled) {
-            socket.send(
+            options.log.trace(`received bind request, but bind is not allowed`);
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_BIND,
                 RelayBindReply.UNAUTHORIZED,
@@ -305,7 +355,10 @@ export async function handleSocketRelay(
           }
 
           if (serviceBound) {
-            socket.send(
+            options.log.trace(
+              `received bind request, but socket is already bound`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_BIND,
                 RelayBindReply.SOCKET_ALREADY_BOUND,
@@ -353,7 +406,10 @@ export async function handleSocketRelay(
           }
 
           if (someInvalidService) {
-            socket.send(
+            options.log.trace(
+              `received bind request, some service types are not valid`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_BIND,
                 RelayBindReply.SERVICE_INVALID_TYPE,
@@ -363,7 +419,10 @@ export async function handleSocketRelay(
             else break;
           }
           if (someUnauthorized) {
-            socket.send(
+            options.log.trace(
+              `received bind request, but some services are unauthorized`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_BIND,
                 RelayBindReply.UNAUTHORIZED,
@@ -373,7 +432,10 @@ export async function handleSocketRelay(
             else break;
           }
           if (someUnavailable) {
-            socket.send(
+            options.log.trace(
+              `received bind request, but some services are already bound`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_BIND,
                 RelayBindReply.SERVICE_ALREADY_BOUND,
@@ -383,7 +445,8 @@ export async function handleSocketRelay(
             else break;
           }
 
-          socket.send(
+          options.log.trace(`received bind request, bound`);
+          await write(
             new Uint8Array([RelayCommand.SERVICE_BIND, RelayBindReply.SUCCESS]),
           );
           relay.bind(socket, services);
@@ -392,15 +455,18 @@ export async function handleSocketRelay(
         }
 
         case RelayCommand.SERVICE_CONNECT: {
-          const uid = buffer.uint32();
-          const encodedUID = encodeUint32(uid);
+          const encodedUID = buffer.data(4, { ahead: true });
+          const uid = buffer.int32();
 
           if (!security.permissions.connect.enabled) {
-            socket.send(
+            options.log.trace(
+              `received connect request, but connect is not allowed`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
                 ...encodedUID,
-                RelayConnectReply.UNAUTHORIZED,
+                RelayConnectReply.SERVICE_UNAUTHORIZED,
               ]),
             );
             if (isBlockingFailure("connect-unauthorized")) return;
@@ -408,11 +474,12 @@ export async function handleSocketRelay(
           }
 
           if (uid <= 0 || relay.connection(socket, uid)) {
-            socket.send(
+            options.log.trace(`received connect request, but uid is not valid`);
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
                 ...encodedUID,
-                RelayConnectReply.INVALID_IDENTIFIER,
+                RelayConnectReply.SERVICE_INVALID_IDENTIFIER,
               ]),
             );
             if (isBlockingFailure("connect-invalid-uid")) return;
@@ -422,7 +489,10 @@ export async function handleSocketRelay(
           const serviceType = buffer.uint8();
 
           if (!(serviceType in RelayServiceType)) {
-            socket.send(
+            options.log.trace(
+              `received connect request, but service type is not valid`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
                 ...encodedUID,
@@ -441,11 +511,14 @@ export async function handleSocketRelay(
             serviceName,
           );
           if (!allowed) {
-            socket.send(
+            options.log.trace(
+              `received connect request, but service is not authorized`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
                 ...encodedUID,
-                RelayConnectReply.UNAUTHORIZED,
+                RelayConnectReply.SERVICE_UNAUTHORIZED,
               ]),
             );
             if (isBlockingFailure("connect-unauthorized-service")) return;
@@ -454,7 +527,10 @@ export async function handleSocketRelay(
 
           const found = relay.service(serviceName);
           if (!found) {
-            socket.send(
+            options.log.trace(
+              `received connect request, but service is not found`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
                 ...encodedUID,
@@ -466,7 +542,10 @@ export async function handleSocketRelay(
           }
 
           if (found !== serviceType) {
-            socket.send(
+            options.log.trace(
+              `received connect request, but service type does not match`,
+            );
+            await write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
                 ...encodedUID,
@@ -477,39 +556,77 @@ export async function handleSocketRelay(
             else break;
           }
 
-          relay.link(socket, serviceName, uid);
+          options.log.trace(`received connect request, linked`);
+          await relay.link(socket, serviceName, uid, buffer.dataLeft());
+
+          break;
+        }
+
+        case RelayCommand.SERVICE_LINK: {
+          const encodedUID = buffer.data(4, { ahead: true });
+          const uid = buffer.int32();
+          const reply = buffer.uint8();
+
+          const connection = relay.connection(socket, uid);
+          if (!connection) {
+            if (reply === RelayLinkReply.SUCCESS) {
+              await write(
+                new Uint8Array([
+                  RelayCommand.SERVICE_CLOSED,
+                  ...encodedUID,
+                  RelayServiceConnectionReason.CONNECTION_GONE,
+                ]),
+              );
+            }
+          } else {
+            await connection.notify(socket, reply);
+          }
 
           break;
         }
 
         case RelayCommand.SERVICE_STREAM: {
-          const uid = buffer.uint32();
+          const encodedUID = buffer.data(4, { ahead: true });
+          const uid = buffer.int32();
 
           const connection = relay.connection(socket, uid);
           if (!connection) {
-            const closeBuffer = new Uint8Array(6);
-
-            closeBuffer[0] = RelayCommand.SERVICE_CLOSED;
-            new DataView(closeBuffer.buffer).setInt32(1, uid);
-            closeBuffer[5] = RelayServiceConnectionReason.CONNECTION_GONE;
-
-            socket.send(closeBuffer);
+            await write(
+              new Uint8Array([
+                RelayCommand.SERVICE_CLOSED,
+                ...encodedUID,
+                RelayServiceConnectionReason.CONNECTION_GONE,
+              ]),
+            );
           } else {
-            connection.forward(socket, buffer.dataLeft());
+            await connection.forward(socket, buffer.dataLeft());
           }
           break;
         }
 
         case RelayCommand.SERVICE_CLOSED: {
-          const uid = buffer.uint32();
+          const uid = buffer.int32();
           const reason = buffer.uint8();
 
-          relay.connection(socket, uid)?.close(socket, reason);
+          await relay.connection(socket, uid)?.close(socket, reason);
+          break;
+        }
+
+        case RelayCommand.UNSUPPORTED: {
+          const unsupportedCommand = buffer.uint8();
+          options.log.error(
+            `client notified unsupported command: ${
+              printEnum(RelayCommand, unsupportedCommand)
+            }`,
+          );
           break;
         }
 
         default: {
-          socket.send(new Uint8Array([RelayCommand.UNSUPPORTED, command]));
+          options.log.warn(
+            `received unsupported command: ${printEnum(RelayCommand, command)}`,
+          );
+          await write(new Uint8Array([RelayCommand.UNSUPPORTED, command]));
           if (isBlockingFailure("unsupported-command")) return;
           else break;
         }
@@ -529,6 +646,7 @@ export async function handleSocketRelay(
 
 export function createRelay(): Relay {
   type RegisteredSocket = {
+    write: (content: Uint8Array<ArrayBuffer> | ArrayBuffer) => Promise<void>;
     relayCounter: number;
     connections: Map<number, RelayServiceConnection>;
   };
@@ -540,8 +658,9 @@ export function createRelay(): Relay {
   const registeredSockets = new Map<WebSocket, RegisteredSocket>();
 
   return {
-    connected: (socket: WebSocket) => {
+    connected: (socket, write) => {
       registeredSockets.set(socket, {
+        write,
         relayCounter: 0,
         connections: new Map(),
       });
@@ -581,13 +700,10 @@ export function createRelay(): Relay {
       });
     },
 
-    connection: (
-      socket: WebSocket,
-      uid: number,
-    ) => {
+    connection: (socket, uid) => {
       return registeredSockets.get(socket)!.connections.get(uid);
     },
-    link: (clientSocket: WebSocket, service: string, clientUid: number) => {
+    link: async (clientSocket, service, clientUid, metadata) => {
       const bound = boundServices.get(service);
       if (!bound) throw new Error("Service not found");
 
@@ -600,10 +716,10 @@ export function createRelay(): Relay {
       const connection: RelayServiceConnection = {
         status: "requested",
 
-        client: { socket: clientSocket, uid: clientUid },
-        server: { socket: serverSocket, uid: serverUid },
+        client: { socket: clientSocket, uid: clientUid, write: client.write },
+        server: { socket: serverSocket, uid: serverUid, write: server.write },
 
-        close: (source, reason) => {
+        close: async (source, reason) => {
           const target = source === serverSocket
             ? connection.client
             : connection.server;
@@ -615,7 +731,7 @@ export function createRelay(): Relay {
             new DataView(closeBuffer.buffer).setInt32(1, target.uid);
             closeBuffer[5] = reason;
 
-            target.socket.send(closeBuffer);
+            await target.write(closeBuffer);
           } catch (err) {
             // TODO: Log
           } finally {
@@ -623,7 +739,7 @@ export function createRelay(): Relay {
             server.connections.delete(serverUid);
           }
         },
-        forward: (source, data) => {
+        forward: async (source, data) => {
           const target = source === serverSocket
             ? connection.client
             : connection.server;
@@ -635,11 +751,33 @@ export function createRelay(): Relay {
             new DataView(forwardBuffer.buffer).setInt32(1, target.uid);
             forwardBuffer.set(data, 5);
 
-            target.socket.send(forwardBuffer);
+            await target.write(forwardBuffer);
           } catch (err) {
             // TODO: Log
 
-            connection.close(
+            await connection.close(
+              target.socket,
+              RelayServiceConnectionReason.TRANSPORT_FORWARD_FAILED,
+            );
+          }
+        },
+        notify: async (source, reply) => {
+          const target = source === serverSocket
+            ? connection.client
+            : connection.server;
+
+          try {
+            await target.write(
+              new Uint8Array([
+                RelayCommand.SERVICE_CONNECT,
+                ...encodeInt32(target.uid),
+                reply,
+              ]),
+            );
+          } catch (err) {
+            // TODO: Log
+
+            await connection.close(
               target.socket,
               RelayServiceConnectionReason.TRANSPORT_FORWARD_FAILED,
             );
@@ -651,15 +789,18 @@ export function createRelay(): Relay {
       server.connections.set(serverUid, connection);
 
       try {
-        const linkBuffer = new Uint8Array(8);
-        linkBuffer[0] = RelayCommand.SERVICE_LINK;
-        new DataView(linkBuffer.buffer).setInt32(1, serverUid);
+        const linkBuffer = new Uint8Array([
+          RelayCommand.SERVICE_LINK,
+          ...encodeInt32(serverUid),
+          ...encodeWithUint16Length(new TextEncoder().encode(service)),
+          ...metadata,
+        ]);
 
-        serverSocket.send(linkBuffer);
+        await server.write(linkBuffer);
       } catch (err) {
         // TODO: Log
 
-        connection.close(
+        await connection.close(
           serverSocket,
           RelayServiceConnectionReason.TRANSPORT_SOCKET_START_FAILED,
         );

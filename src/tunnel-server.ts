@@ -67,8 +67,14 @@ await createTunnelRelay({
           return {
             key: client.publicKey,
             permissions: {
-              bind: { enabled: false },
-              connect: { enabled: false },
+              bind: {
+                enabled: true,
+                allowed: () => Promise.resolve(true),
+              },
+              connect: {
+                enabled: true,
+                allowed: () => Promise.resolve(true),
+              },
             },
           };
         }

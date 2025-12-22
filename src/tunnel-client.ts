@@ -31,9 +31,9 @@ await createTunnelRelayClient({
   signal: controller.signal,
 
   services: {
-    proxyServer: { enabled: false },
+    proxyServer: { enabled: true, service: "proxy" },
     proxyClient: [
-      { service: "remote-client", address: { port: 1080 } },
+      { service: "proxy", address: { port: 1080 } },
     ],
     bind: [],
     connect: [],

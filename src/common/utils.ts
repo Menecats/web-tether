@@ -299,7 +299,7 @@ export function randomWait(min: number, max: number, signal?: AbortSignal) {
   });
 }
 
-export function derivedSignal(signal: AbortSignal): AbortController {
+export function deriveSignal(signal: AbortSignal): AbortController {
   const derived = new AbortController();
 
   const onAbort = () => derived.abort(signal.reason);
