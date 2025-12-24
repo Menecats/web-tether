@@ -1,3 +1,4 @@
+import { gray, red, yellow } from "@std/fmt/colors";
 import { createLogger } from "./common/log.ts";
 import { client, server } from "./common/test-keys.ts";
 import { createTunnelRelayClient } from "./tunnel/tunnel.client.ts";
@@ -30,7 +31,30 @@ await createTunnelRelayClient({
     serverKey: server.publicKey,
     clientKeys: client,
   },
-  log: createLogger((level, content) => console.log(level, ...content)),
+  log: createLogger((level, content) => {
+    let colorize: (str: string) => string;
+    switch (level) {
+      case "trace":
+        colorize = gray;
+        break;
+      case "debug":
+        colorize = yellow;
+        break;
+      case "error":
+        colorize = red;
+        break;
+      default:
+        colorize = (a) => a;
+        break;
+    }
+
+    if (level === "trace") return;
+
+    console.log(
+      level,
+      ...content.map((c) => typeof c === "string" ? colorize(c) : c),
+    );
+  }),
   signal: controller.signal,
 
   services: {

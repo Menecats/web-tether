@@ -1,4 +1,7 @@
-import { createSocketWriter } from "../common/communication.ts";
+import {
+  createCipheredWriter,
+  createDecipheredQueue,
+} from "../common/communication.ts";
 import { Logger, prefixLogger } from "../common/log.ts";
 import {
   encodeInt32,
@@ -309,17 +312,18 @@ export async function handleSocketRelay(
       return;
     }
 
-    const writer = createSocketWriter({
+    options.log.trace(`configure cipher writer and decrypted queue`);
+    const writer = createCipheredWriter({
       socket,
       security,
       signal: options.signal,
       log: options.log,
     });
-
-    options.log.trace(`setting up decrypted queue`);
-    using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
+    using decryptQueue = createDecipheredQueue({
+      cipheredQueue: queue,
+      security,
       signal: options.signal,
-      map: (packet, signal) => security.decrypt(packet, signal),
+      decryptQueueSize: options.performance.decryptQueueSize,
     });
 
     (async () => {

@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@std/async@^1.0.15": "1.0.15",
     "jsr:@std/crypto@^1.0.5": "1.0.5",
+    "jsr:@std/fmt@^1.0.8": "1.0.8",
     "jsr:@std/net@^1.0.6": "1.0.6"
   },
   "jsr": {
@@ -12,6 +13,9 @@
     "@std/crypto@1.0.5": {
       "integrity": "0dcfbb319fe0bba1bd3af904ceb4f948cde1b92979ec1614528380ed308a3b40"
     },
+    "@std/fmt@1.0.8": {
+      "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
+    },
     "@std/net@1.0.6": {
       "integrity": "110735f93e95bb9feb95790a8b1d1bf69ec0dc74f3f97a00a76ea5efea25500c"
     }
@@ -20,6 +24,7 @@
     "dependencies": [
       "jsr:@std/async@^1.0.15",
       "jsr:@std/crypto@^1.0.5",
+      "jsr:@std/fmt@^1.0.8",
       "jsr:@std/net@^1.0.6"
     ]
   }

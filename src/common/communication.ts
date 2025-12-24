@@ -1,8 +1,9 @@
 import { TunnelWriter } from "../tunnel/common/tunnel.common.types.ts";
+import { TunnelClientError } from "../tunnel/tunnel.errors.ts";
 import { TunnelSecurity } from "../tunnel/tunnel.security.ts";
 import { asyncAction } from "./async.ts";
 import { Logger } from "./log.ts";
-import { consumableAsyncQueue } from "./utils.ts";
+import { ConsumableAsyncQueue, consumableAsyncQueue } from "./utils.ts";
 
 export type ConnectionTunnel = {
   close(): void;
@@ -74,7 +75,48 @@ export function createConnectionTunnelPair(
   return [tunnelA, tunnelB];
 }
 
-export function createSocketWriter({ socket, security, signal, log }: {
+export function createDecipheredQueue(
+  { cipheredQueue: queue, security, signal, decryptQueueSize }: {
+    cipheredQueue: ConsumableAsyncQueue<ArrayBuffer>;
+    security: TunnelSecurity<"client" | "relay">;
+    signal: AbortSignal;
+    decryptQueueSize: number;
+  },
+) {
+  const decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
+    signal,
+    map: (packet, queueSignal) => security.decrypt(packet, queueSignal),
+  });
+
+  asyncAction(async (actionSignal) => {
+    try {
+      while (!actionSignal.aborted) {
+        const encryptedPacket = await queue.shift({ signal: actionSignal });
+        if (decryptQueue.queued() >= decryptQueueSize) {
+          await decryptQueue.waitFor("dequeue", { signal: actionSignal });
+        }
+
+        if (!actionSignal.aborted) {
+          decryptQueue.push(encryptedPacket);
+        }
+      }
+    } catch (error) {
+      if (!queue.aborted()) {
+        queue.abortWith(
+          (error instanceof TunnelClientError)
+            ? error
+            : new TunnelClientError({ reason: "unknown-error", error }),
+        );
+      }
+
+      decryptQueue.abortWith(queue.abortReason());
+    }
+  }, { signal });
+
+  return decryptQueue;
+}
+
+export function createCipheredWriter({ socket, security, signal, log }: {
   socket: WebSocket;
   security: TunnelSecurity<"client" | "relay">;
   signal: AbortSignal;

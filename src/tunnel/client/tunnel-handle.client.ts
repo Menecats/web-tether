@@ -1,5 +1,7 @@
-import { asyncAction } from "../../common/async.ts";
-import { createSocketWriter } from "../../common/communication.ts";
+import {
+  createCipheredWriter,
+  createDecipheredQueue,
+} from "../../common/communication.ts";
 import { Logger } from "../../common/log.ts";
 import {
   encodeUint16,
@@ -20,7 +22,7 @@ import { handle_SERVICE_STREAM } from "./commands/handle-SERVICE_STREAM.ts";
 import { handle_SOCKET_CLOSED } from "./commands/handle-SOCKET_CLOSED.ts";
 import { handle_UNSUPPORTED } from "./commands/handle-UNSUPPORTED.ts";
 import {
-  handleTunnelClientService,
+  handleTunnelClientService as handleTunnelClientServices,
 } from "./services/client-service-handler.ts";
 import {
   TunnelClientRawSocketSericeServer,
@@ -131,45 +133,21 @@ export async function handleClientSocket({
     log,
   });
 
-  const writer = createSocketWriter({
+  notifyConnected();
+
+  log.trace(`configure cipher writer and decrypted queue`);
+  const writer = createCipheredWriter({
     socket,
     security,
     signal: socketSignal,
     log,
   });
-
-  notifyConnected();
-
-  log.trace(`configure decrypted queue`);
-  using decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
+  using decryptQueue = createDecipheredQueue({
+    cipheredQueue: queue,
+    security,
     signal: socketSignal,
-    map: (packet, queueSignal) => security.decrypt(packet, queueSignal),
+    decryptQueueSize: options.performance.decryptQueueSize,
   });
-
-  asyncAction(async (actionSignal) => {
-    try {
-      while (!actionSignal.aborted) {
-        const encryptedPacket = await queue.shift({ signal: actionSignal });
-        if (decryptQueue.queued() >= options.performance.decryptQueueSize) {
-          await decryptQueue.waitFor("dequeue", { signal: actionSignal });
-        }
-
-        if (!actionSignal.aborted) {
-          decryptQueue.push(encryptedPacket);
-        }
-      }
-    } catch (error) {
-      if (!queue.aborted()) {
-        queue.abortWith(
-          (error instanceof TunnelClientError)
-            ? error
-            : new TunnelClientError({ reason: "unknown-error", error }),
-        );
-      }
-
-      decryptQueue.abortWith(queue.abortReason());
-    }
-  }, { signal: socketSignal });
 
   let localUID = 1;
 
@@ -206,7 +184,7 @@ export async function handleClientSocket({
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
-  handleTunnelClientService({
+  handleTunnelClientServices({
     services: [
       ...services.rawSockets,
       ...services.socksProxies,
