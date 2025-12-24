@@ -14,11 +14,11 @@ export type TunnelSecurity<Role extends TunnelSecurityRole> = {
     : undefined;
 
   encrypt(
-    plaintext: BufferSource,
+    plaintext: ArrayBuffer | Uint8Array<ArrayBuffer>,
     signal?: AbortSignal,
   ): Promise<ArrayBuffer>;
   decrypt(
-    ciphertext: BufferSource,
+    ciphertext: ArrayBuffer | Uint8Array<ArrayBuffer>,
     signal?: AbortSignal,
   ): Promise<ArrayBuffer>;
 };
@@ -64,10 +64,12 @@ export function createTunnelSecurity<Role extends TunnelSecurityRole>(
     role: localRole,
     permissions: options.permissions as TunnelSecurity<Role>["permissions"],
 
-    async decrypt(chiphertext) {
+    decrypt: async (chiphertext) => {
+      const counter = remoteCounter++;
+
       try {
         return await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: encodeIV(remoteRole, remoteCounter++) },
+          { name: "AES-GCM", iv: encodeIV(remoteRole, counter) },
           options.key,
           chiphertext,
         );
@@ -75,10 +77,11 @@ export function createTunnelSecurity<Role extends TunnelSecurityRole>(
         throw options.cryptoError(error, "decrypt");
       }
     },
-    async encrypt(plaintext) {
+    encrypt: async (plaintext) => {
+      const counter = localCounter++;
       try {
         return await crypto.subtle.encrypt(
-          { name: "AES-GCM", iv: encodeIV(localRole, localCounter++) },
+          { name: "AES-GCM", iv: encodeIV(localRole, counter) },
           options.key,
           plaintext,
         );

@@ -1,0 +1,146 @@
+import { asyncAction } from "../../../common/async.ts";
+import { createConnectionTunnelPair } from "../../../common/communication.ts";
+import { Logger, prefixLogger } from "../../../common/log.ts";
+import {
+  encodeInt32,
+  encodeUint16,
+  encodeWithUint16Length,
+} from "../../../common/safe-buffer.ts";
+import { safelyClose } from "../../../common/utils.ts";
+import { TunnelWriter } from "../../common/tunnel.common.types.ts";
+import { RelayCommand, RelayServiceType } from "../../tunnel.relay.ts";
+import { TunnelClientConnection } from "../tunnel.client.types.ts";
+import { handleClientStream } from "./handle-stream.ts";
+import {
+  TunnelClientRawSocketSericeServer,
+} from "./raw-socket-server.service.ts";
+import {
+  TunnelClientSocksProxyServiceServer,
+} from "./socks-proxy-server.service.ts";
+
+export async function handleTunnelClientService(
+  {
+    services,
+    generateUID,
+
+    connections,
+
+    write,
+    signal,
+    encoder,
+    log,
+  }: {
+    services: (
+      | TunnelClientRawSocketSericeServer
+      | TunnelClientSocksProxyServiceServer
+    )[];
+    generateUID: () => number;
+
+    connections: Map<number, TunnelClientConnection>;
+
+    write: TunnelWriter;
+    signal: AbortSignal;
+    encoder: TextEncoder;
+    log: Logger;
+  },
+) {
+  await Promise.all(services.map((service) => {
+    const serviceLog = prefixLogger(log, `[${service.definition.service}]`);
+    const encodedService = encodeWithUint16Length(
+      encoder.encode(service.definition.service),
+    );
+
+    return asyncAction(async (actionSignal) => {
+      try {
+        while (!actionSignal.aborted) {
+          serviceLog.trace("waiting for client");
+
+          const client = await service.handle.shift({ signal: actionSignal });
+          if (client.expired || actionSignal.aborted) continue;
+
+          const uid = generateUID();
+          const encodedUID = encodeInt32(uid);
+
+          const requestLog = prefixLogger(serviceLog, `[${uid}]`);
+
+          requestLog.trace(`client received, creating connections pair`);
+          const [relayTunnel, serviceTunnel] = createConnectionTunnelPair();
+
+          const {
+            promise: done,
+            resolve: finalize,
+          } = Promise.withResolvers<void>();
+
+          let connected = false;
+          connections.set(uid, {
+            uid,
+            tunnel: relayTunnel,
+
+            onConnect: () => {
+              connected = true;
+
+              asyncAction(async (connectionSignal) => {
+                try {
+                  requestLog.trace(`remote client connected`);
+                  client.emit({ ok: true, tunnel: serviceTunnel });
+
+                  await handleClientStream({
+                    uid,
+                    write,
+                    tunnel: relayTunnel,
+                    signal: connectionSignal,
+                    log: requestLog,
+                  });
+                } finally {
+                  finalize();
+                }
+              }, { signal: actionSignal });
+            },
+            onError: (reason) => {
+              requestLog.trace(`remote connection failed due to '${reason}'`);
+              client.emit({ ok: false, error: reason });
+
+              finalize();
+            },
+
+            close: () => {
+              requestLog.trace(`closing connection`);
+              finalize();
+            },
+            done,
+          });
+          done.finally(() => {
+            connections.delete(uid);
+            safelyClose(relayTunnel);
+            if (!connected) {
+              client.emit({ ok: false, error: "general-failure" });
+            }
+          });
+
+          requestLog.trace(`send connect request to relay`);
+
+          const serviceParameters = client.type === RelayServiceType.SOCKS_PROXY
+            ? [
+              ...encodeWithUint16Length(
+                encoder.encode(client.destination.host),
+              ),
+              ...encodeUint16(client.destination.port),
+            ]
+            : [];
+
+          write(
+            new Uint8Array([
+              RelayCommand.SERVICE_CONNECT,
+              ...encodedUID,
+              client.type,
+              ...encodedService,
+              ...serviceParameters,
+            ]),
+          );
+        }
+      } catch (err) {
+        serviceLog.error("error while listening service", err);
+      }
+    }, { signal }).done;
+  }));
+}

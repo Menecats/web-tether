@@ -1,3 +1,9 @@
+import { TunnelWriter } from "../tunnel/common/tunnel.common.types.ts";
+import { TunnelSecurity } from "../tunnel/tunnel.security.ts";
+import { asyncAction } from "./async.ts";
+import { Logger } from "./log.ts";
+import { consumableAsyncQueue } from "./utils.ts";
+
 export type ConnectionTunnel = {
   close(): void;
 
@@ -66,4 +72,30 @@ export function createConnectionTunnelPair(
   };
 
   return [tunnelA, tunnelB];
+}
+
+export function createSocketWriter({ socket, security, signal, log }: {
+  socket: WebSocket;
+  security: TunnelSecurity<"client" | "relay">;
+  signal: AbortSignal;
+  log: Logger;
+}): { write: TunnelWriter; done: Promise<unknown> } {
+  const queue = consumableAsyncQueue<ArrayBuffer | Uint8Array<ArrayBuffer>>({
+    signal,
+  });
+
+  const write: TunnelWriter = (data) => Promise.resolve(queue.push(data));
+  const { done } = asyncAction(async () => {
+    try {
+      while (!signal.aborted) {
+        const next = await queue.shift({ signal });
+        const ciphered = await security.encrypt(next);
+        socket.send(ciphered);
+      }
+    } catch (err) {
+      log.error(`error sending data`, err);
+    }
+  }, { signal });
+
+  return { done, write };
 }
