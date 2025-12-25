@@ -1,6 +1,6 @@
-import { gray, red, yellow } from "@std/fmt/colors";
-import { createLogger } from "./common/log.ts";
+import { colorizeOutput, createLogger } from "./common/log.ts";
 import { client, server } from "./common/test-keys.ts";
+import { TunnelRelayClientOptions } from "./tunnel/common/tunnel.common.types.ts";
 import { createTunnelRelayClient } from "./tunnel/tunnel.client.ts";
 import { TunnelClientError } from "./tunnel/tunnel.errors.ts";
 
@@ -11,11 +11,29 @@ Deno.addSignalListener("SIGINT", () => {
   controller.abort(new TunnelClientError({ reason: "application-aborted" }));
 });
 
-const username = "test";
-const password = "test";
-
 const isClient = Deno.args.includes("client");
 const isServer = Deno.args.includes("server");
+
+const advanced = Deno.args.includes("advanced");
+const basic = Deno.args.includes("basic");
+
+if (!advanced && !basic) {
+  throw new Error("must decide if basic or advanced auth");
+}
+if (advanced && basic) {
+  throw new Error("can pick only basic or advanced");
+}
+
+const basicAuth = {
+  mode: "basic",
+  identifier: "test",
+  passkey: "test",
+} satisfies TunnelRelayClientOptions["auth"];
+const advancedAuth = {
+  mode: "advanced",
+  serverKey: server.publicKey,
+  clientKeys: client,
+} satisfies TunnelRelayClientOptions["auth"];
 
 await createTunnelRelayClient({
   endpoint: new URL("ws://localhost:3456/relay"),
@@ -26,35 +44,8 @@ await createTunnelRelayClient({
     reconnectDelay: (context) => 5000,
   },
 
-  auth: {
-    mode: "advanced",
-    serverKey: server.publicKey,
-    clientKeys: client,
-  },
-  log: createLogger((level, content) => {
-    let colorize: (str: string) => string;
-    switch (level) {
-      case "trace":
-        colorize = gray;
-        break;
-      case "debug":
-        colorize = yellow;
-        break;
-      case "error":
-        colorize = red;
-        break;
-      default:
-        colorize = (a) => a;
-        break;
-    }
-
-    if (level === "trace") return;
-
-    console.log(
-      level,
-      ...content.map((c) => typeof c === "string" ? colorize(c) : c),
-    );
-  }),
+  auth: advanced ? advancedAuth : basicAuth,
+  log: createLogger(colorizeOutput()),
   signal: controller.signal,
 
   services: {

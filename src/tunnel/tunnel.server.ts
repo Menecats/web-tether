@@ -1,7 +1,9 @@
+import { log } from "node:console";
 import { Logger, prefixLogger } from "../common/log.ts";
 import { verifyCryptoKeyPair } from "../common/security.ts";
 import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
 import { TunnelSecurityPermissions } from "./tunnel.security.ts";
+import { TunnelServerError } from "./tunnel.errors.ts";
 
 export type CreateTunnelRelayOptions = {
   listen: { port: number; hostname: string };
@@ -44,14 +46,28 @@ export type CreateTunnelRelayOptions = {
 
   log: Logger;
 };
-export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
-  if (options.signal.aborted) return;
+export async function createTunnelRelayServer(
+  options: CreateTunnelRelayOptions,
+) {
+  options.log.info(`creating tunnel relay server.`);
 
+  if (options.signal.aborted) {
+    options.log.warn(`given abort signal is already aborted, closing server.`);
+    return;
+  }
+
+  options.log.debug(`validating configuration.`);
   if (options.auth.advanced.enabled) {
+    options.log.trace(`validating 'advanced' authentication server key pair.`);
     const valid = await verifyCryptoKeyPair(
       options.auth.advanced.serverKeys,
     );
-    if (!valid) throw new Error("Invalid keys error"); // TODO
+    if (!valid) {
+      throw new TunnelServerError({
+        reason: "invalid-configuration",
+        details: "server-keys",
+      });
+    }
   }
 
   const allSockets = new Set<ReturnType<typeof handleSocketRelay>>();
@@ -76,8 +92,10 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
     ) => Response | Promise<Response>;
   };
 
-  const relay = createRelay();
+  options.log.debug(`creating relay context`);
+  const relay = createRelay(options.log);
 
+  options.log.debug(`creating server routes`);
   const relayRoutes: RelayRoute[] = [
     {
       pattern: new URLPattern({ pathname: "/admin" }),
@@ -98,7 +116,7 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
           `[${socketId}]`,
         );
 
-        socketLog.debug(`socket connected`);
+        socketLog.debug(`new socket connected.`);
         const socketDone = handleSocketRelay(
           { ...options, log: socketLog },
           socket,
@@ -111,10 +129,10 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
         // Once done deregister active connection
         socketDone
           .catch((error) => {
-            socketLog.error(`error handling socket`, error);
+            socketLog.error(`error handling socket.`, error);
           })
           .finally(() => {
-            socketLog.trace(`purge socket`);
+            socketLog.trace(`socket done, cleaning up.`);
             allSockets.delete(socketDone);
           });
 
@@ -144,7 +162,14 @@ export async function createTunnelRelay(options: CreateTunnelRelayOptions) {
       return json({ error: "not-found" }, { status: 404 });
     },
   );
+  options.log.info(
+    `http server listening on '${
+      options.listen.hostname || "0.0.0.0"
+    }:${options.listen.port}'.`,
+  );
   await server.finished;
+  options.log.info(`http server done.`);
 
+  options.log.info(`wait for all remaining sockets to complete.`);
   await Promise.all([...allSockets]);
 }

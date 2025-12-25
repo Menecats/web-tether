@@ -1,10 +1,11 @@
-import { createLogger } from "./common/log.ts";
+import { gray, red, yellow } from "@std/fmt/colors";
+import { colorizeOutput, createLogger } from "./common/log.ts";
 import { areBuffersEqual } from "./common/safe-buffer.ts";
 import { pbkdf2Hash512 } from "./common/security.ts";
 import { client, clientHash, server } from "./common/test-keys.ts";
 import { TunnelServerError } from "./tunnel/tunnel.errors.ts";
 import { TunnelSecurityPermissions } from "./tunnel/tunnel.security.ts";
-import { createTunnelRelay } from "./tunnel/tunnel.server.ts";
+import { createTunnelRelayServer } from "./tunnel/tunnel.server.ts";
 
 const controller = new AbortController();
 
@@ -43,7 +44,7 @@ const testPermissions = {
   connect: { enabled: true, allowed: () => Promise.resolve(true) },
 } satisfies TunnelSecurityPermissions;
 
-await createTunnelRelay({
+await createTunnelRelayServer({
   listen: { hostname: "0.0.0.0", port: 3456 },
   performance: { decryptQueueSize: 1024 },
   auth: {
@@ -83,6 +84,6 @@ await createTunnelRelay({
       },
     },
   },
-  log: createLogger((level, content) => console.log(level, ...content)),
+  log: createLogger(colorizeOutput()),
   signal: controller.signal,
 });

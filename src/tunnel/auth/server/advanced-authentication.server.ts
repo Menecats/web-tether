@@ -18,10 +18,10 @@ export async function handleAdvencedAuthenticationServer(
   buffer: SafeReader,
   log: Logger,
 ): Promise<TunnelSecurity<"relay">> {
-  log.trace("reading client key hash");
+  log.trace("reading client key hash.");
   const clientKeyHash = buffer.data(buffer.uint8());
 
-  log.trace("generating session salt, info and challenge");
+  log.trace("generating session salt, info and challenge.");
   const sessionSalt = crypto.getRandomValues(new Uint8Array(16));
   const sessionInfo = new Uint8Array([
     RelayVersion7,
@@ -29,11 +29,11 @@ export async function handleAdvencedAuthenticationServer(
   ]);
   const sessionChallenge = crypto.getRandomValues(new Uint8Array(16));
 
-  log.trace("looking up client");
+  log.trace(`looking up client '${clientKeyHash.toBase64()}'`);
   const client = await auth.lookupClient(clientKeyHash);
   if (!client) {
     log.trace(
-      "client not found, proceeding with mock authentication to avoid user enumeration",
+      "client not found, proceeding with mock authentication to avoid user enumeration.",
     );
 
     const mockSharedSecret = crypto.getRandomValues(new Uint8Array(256));
@@ -61,7 +61,7 @@ export async function handleAdvencedAuthenticationServer(
       await mockSecurity.encrypt(sessionChallenge),
     );
 
-    log.trace("sending mock challenge");
+    log.trace("sending mock challenge.");
     socket.send(
       new Uint8Array([
         RelayVersion7,
@@ -75,14 +75,14 @@ export async function handleAdvencedAuthenticationServer(
       ]),
     );
 
-    log.trace("wait for solution");
+    log.trace("wait for pointless solution.");
     await queue.shift({
       timeout: 1000,
       timeoutError: () => new TunnelServerError({ reason: "timeout" }),
     });
     await randomWait(100, 500);
 
-    log.trace("notify unauthorized");
+    log.debug("socket unauthorized (unknown client key hash).");
     socket.send(
       new Uint8Array([
         RelayVersion7,
@@ -92,7 +92,7 @@ export async function handleAdvencedAuthenticationServer(
     throw new TunnelServerError({ reason: "auth-unknown-client" });
   }
 
-  log.trace("client found, derive shared secret");
+  log.trace("client found, derive shared secret.");
 
   const sharedSecret = await deriveRawSecret(
     auth.serverKeys.privateKey,
@@ -100,7 +100,7 @@ export async function handleAdvencedAuthenticationServer(
   );
   await randomWait(50, 100);
 
-  log.trace("derive session key");
+  log.trace("derive session key.");
 
   const sessionKey = await deriveSessionKey(
     sharedSecret,
@@ -108,7 +108,7 @@ export async function handleAdvencedAuthenticationServer(
     sessionInfo,
   );
 
-  log.trace("create tunnel security");
+  log.trace("create tunnel security manager.");
 
   const security = createTunnelSecurity({
     role: "relay",
@@ -122,13 +122,13 @@ export async function handleAdvencedAuthenticationServer(
       }),
   });
 
-  log.trace("encrypt challenge");
+  log.trace("encrypting session challenge.");
 
   const encryptedChallenge = new Uint8Array(
     await security.encrypt(sessionChallenge),
   );
 
-  log.trace("sending challenge");
+  log.trace("sending session challenge.");
   socket.send(
     new Uint8Array([
       RelayVersion7,
@@ -142,7 +142,7 @@ export async function handleAdvencedAuthenticationServer(
     ]),
   );
 
-  log.trace("waiting for solution");
+  log.trace("waiting for challenge solution.");
   const encryptedSolution = await queue.shift({
     timeout: 1000, // TODO
     timeoutError: () => new TunnelServerError({ reason: "timeout" }),
@@ -150,7 +150,7 @@ export async function handleAdvencedAuthenticationServer(
   await randomWait(100, 500);
 
   try {
-    log.trace("decrypting solution");
+    log.trace("decrypting and validating received solution.");
     const solution = safeReader(
       await security.decrypt(encryptedSolution),
       () => new TunnelServerError({ reason: "buffer-too-short" }),
@@ -180,7 +180,7 @@ export async function handleAdvencedAuthenticationServer(
       throw new TunnelServerError({ reason: "auth-challenge-failed" });
     }
 
-    log.trace("authenticated");
+    log.debug("socket authenticated.");
     socket.send(
       new Uint8Array([
         RelayVersion7,
@@ -189,7 +189,7 @@ export async function handleAdvencedAuthenticationServer(
     );
     return security;
   } catch (error) {
-    log.trace("challenge failed, notify unauthorized");
+    log.debug("socket unauthorized (challenge failed).");
     socket.send(
       new Uint8Array([
         RelayVersion7,

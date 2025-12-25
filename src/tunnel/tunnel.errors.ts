@@ -30,7 +30,11 @@ export type TunnelServerErrorReason =
   | TunnelErrorReason
   | { reason: "unknown-auth"; auth: number }
   | { reason: "auth-challenge-failed" }
-  | { reason: "auth-unknown-client" };
+  | { reason: "auth-unknown-client" }
+  | {
+    reason: "invalid-configuration";
+    details: "server-keys";
+  };
 export class TunnelServerError {
   constructor(public readonly reason: TunnelServerErrorReason) {}
 }

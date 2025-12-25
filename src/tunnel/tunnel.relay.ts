@@ -133,10 +133,10 @@ async function authenticateRelay(
   auth: CreateTunnelRelayOptions["auth"],
   log: Logger,
 ): Promise<TunnelSecurity<"relay"> | undefined> {
-  log.debug(`waiting handshake`);
+  log.debug(`waiting for client handshake.`);
   const packet = safeReader(
     await queue.shift({
-      timeout: 1000,
+      timeout: 1000, // TODO
       timeoutError: () => new TunnelServerError({ reason: "timeout" }),
     }),
     () => new TunnelServerError({ reason: "buffer-too-short" }),
@@ -148,6 +148,7 @@ async function authenticateRelay(
   }
 
   const authMode = packet.uint8();
+  log.trace(`using appropriate authenticaiton schema.`);
 
   if (authMode === RelayAuthentication.BASIC_AUTH) {
     if (auth.basic.enabled) {
@@ -242,7 +243,7 @@ export async function handleSocketRelay(
     using queue = consumableAsyncQueue<ArrayBuffer>({ signal: options.signal });
     const ready = Promise.withResolvers<void>();
 
-    options.log.trace(`configuring 'ready' listeners`);
+    options.log.trace(`configuring 'ready' listeners.`);
 
     socket.binaryType = "arraybuffer";
     socket.onmessage = ({ data }) => {
@@ -251,26 +252,30 @@ export async function handleSocketRelay(
     socket.onopen = () => {
       if (queue.aborted()) {
         options.log.trace(
-          "[listener] socket connection opened, but queue is already aborted, rejecting",
+          "[listener]",
+          "socket connection opened, but queue is already aborted, rejecting.",
           queue.abortReason(),
         );
         ready.reject(queue.abortReason());
       } else {
         options.log.trace(
-          "[listener] socket connection opened, notifying ready",
+          "[listener]",
+          "socket connection opened, notifying ready.",
         );
         ready.resolve();
       }
     };
     socket.onclose = () => {
       options.log.trace(
-        "[listener] socket connection closed before being opened, rejecting",
+        "[listener]",
+        "socket connection closed before being opened, rejecting.",
       );
       ready.reject(new TunnelServerError({ reason: "socket-closed" }));
     };
     socket.onerror = (event) => {
       options.log.trace(
-        "[listener] socket connection errored before being opened, rejecting",
+        "[listener]",
+        "socket connection errored before being opened, rejecting.",
       );
       ready.reject(
         new TunnelServerError({
@@ -280,17 +285,17 @@ export async function handleSocketRelay(
       );
     };
 
-    options.log.trace(`waiting for socket to connect`);
+    options.log.trace(`waiting for socket connection to open.`);
     await ready.promise;
 
-    options.log.trace(`configuring 'abort' listeners`);
+    options.log.trace(`configuring 'abort' listeners.`);
     socket.onopen = null;
     socket.onclose = () => {
-      options.log.trace(`[listener] connection closed, aborting queue`);
+      options.log.trace(`[listener]`, `connection closed, aborting queue.`);
       queue.abortWith(new TunnelServerError({ reason: "socket-closed" }));
     };
     socket.onerror = (event) => {
-      options.log.trace(`[listener] connection errored, aborting queue`);
+      options.log.trace(`[listener]`, `connection errored, aborting queue.`);
       queue.abortWith(
         new TunnelServerError({
           reason: "socket-error",
@@ -299,7 +304,6 @@ export async function handleSocketRelay(
       );
     };
 
-    options.log.trace(`authenticate socket`);
     const security = await authenticateRelay(
       socket,
       queue,
@@ -674,7 +678,7 @@ export async function handleSocketRelay(
   }
 }
 
-export function createRelay(): Relay {
+export function createRelay(log: Logger): Relay {
   type RegisteredSocket = {
     write: (content: Uint8Array<ArrayBuffer> | ArrayBuffer) => Promise<void>;
     relayCounter: number;
@@ -761,7 +765,7 @@ export function createRelay(): Relay {
 
             await target.write(closeBuffer);
           } catch (err) {
-            // TODO: Log
+            log.warn(`error notifying closure`, err);
           } finally {
             client.connections.delete(clientUid);
             server.connections.delete(serverUid);
@@ -781,7 +785,7 @@ export function createRelay(): Relay {
 
             await target.write(forwardBuffer);
           } catch (err) {
-            // TODO: Log
+            log.warn(`error forwarding content`, err);
 
             await connection.close(
               target.socket,
@@ -803,7 +807,7 @@ export function createRelay(): Relay {
               ]),
             );
           } catch (err) {
-            // TODO: Log
+            log.warn(`error notifying link`, err);
 
             await connection.close(
               target.socket,
@@ -826,7 +830,7 @@ export function createRelay(): Relay {
 
         await server.write(linkBuffer);
       } catch (err) {
-        // TODO: Log
+        log.warn(`error sending link request`, err);
 
         await connection.close(
           serverSocket,
