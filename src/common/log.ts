@@ -67,7 +67,7 @@ export function colorizeOutput(
 
     const colorize = levelColors[level];
 
-    const colorizedContent = content.map((c, i) => {
+    const colorizedContent = content.map((c) => {
       if (typeof c !== "string") return c;
 
       const [, marker] = markerPattern.exec(c) || [undefined, undefined];

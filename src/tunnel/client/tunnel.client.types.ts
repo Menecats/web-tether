@@ -55,6 +55,7 @@ export type TunnelClientConnection = {
   readonly onConnect: () => void;
   readonly onError: (reason: ConnectionTunnelErrorReason) => void;
 
+  readonly write: (content: Uint8Array<ArrayBuffer>) => void;
   readonly close: (reason: RelayServiceConnectionReason) => void;
   readonly done: Promise<void>;
 };
@@ -62,6 +63,7 @@ export type TunnelClientLink = {
   readonly uid: number;
   readonly tunnel: Promise<ConnectionTunnel | undefined>;
 
+  readonly write: (content: Uint8Array<ArrayBuffer>) => void;
   readonly close: (reason: RelayServiceConnectionReason) => void;
   readonly done: Promise<void>;
 };

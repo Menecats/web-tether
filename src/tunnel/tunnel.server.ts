@@ -100,7 +100,7 @@ export async function createTunnelRelayServer(
     {
       pattern: new URLPattern({ pathname: "/admin" }),
       handle: () => {
-        // TODO
+        // TODO: implement admin dashboard that shows all connected sockets/services/connections
         return json({ todo: true });
       },
     },

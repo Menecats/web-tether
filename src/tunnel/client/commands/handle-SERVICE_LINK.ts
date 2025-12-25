@@ -1,5 +1,10 @@
 import { prefixLogger } from "../../../common/log.ts";
-import { deriveSignal, printEnum, safelyClose } from "../../../common/utils.ts";
+import {
+  consumableAsyncQueue,
+  deriveSignal,
+  printEnum,
+  safelyClose,
+} from "../../../common/utils.ts";
 import {
   RelayCommand,
   RelayLinkReply,
@@ -64,6 +69,8 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = async (
 
   const { promise: done, resolve: finalize } = Promise.withResolvers<void>();
 
+  const outputQueue = consumableAsyncQueue<Uint8Array<ArrayBuffer>>({ signal });
+
   const link: TunnelClientLink = {
     uid,
     tunnel: Deno
@@ -85,7 +92,8 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = async (
           write,
           signal: serviceAbort.signal,
           log: serviceLog,
-        }).finally(() => finalize());
+          outputQueue,
+        }).finally(finalize);
 
         return connection;
       })
@@ -105,6 +113,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = async (
         return undefined;
       }),
 
+    write: (content) => outputQueue.push(content),
     close: (reason) => {
       serviceLog.trace(
         `closing connection with reason: ${

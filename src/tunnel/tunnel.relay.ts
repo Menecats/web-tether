@@ -199,7 +199,6 @@ async function authenticateRelay(
   return undefined;
 }
 
-// TODO:
 export type RelayFailure =
   | "bind-unauthorized"
   | "bind-already-bound-socket"
@@ -214,6 +213,7 @@ export type RelayFailure =
   | "connect-non-matching-service-type"
   | "unsupported-command";
 
+// TODO: check wether blocking features are something necessary?
 function isBlockingFailure(operation: RelayFailure): boolean {
   switch (operation) {
     case "bind-unauthorized":

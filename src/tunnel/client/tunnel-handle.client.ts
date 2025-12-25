@@ -8,7 +8,7 @@ import {
   encodeWithUint16Length,
   safeReader,
 } from "../../common/safe-buffer.ts";
-import { consumableAsyncQueue } from "../../common/utils.ts";
+import { consumableAsyncQueue, printEnum } from "../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
 import { TunnelClientError } from "../tunnel.errors.ts";
 import { RelayCommand, RelayServiceType } from "../tunnel.relay.ts";
@@ -225,25 +225,33 @@ export async function handleClientSocket({
     const commandHandler = commandHandlers[command as RelayCommand] ||
       fallbackCommandHandler;
 
-    const result = await commandHandler({
-      decoder,
-      encoder,
+    try {
+      const result = await commandHandler({
+        decoder,
+        encoder,
 
-      command,
+        command,
 
-      buffer,
-      write: writer.write,
-      log,
+        buffer,
+        write: writer.write,
+        log,
 
-      signal: socketSignal,
+        signal: socketSignal,
 
-      services: {
-        registered: registeredServices,
+        services: {
+          registered: registeredServices,
 
-        links: serviceLinks,
-        connections: serviceConnections,
-      },
-    });
-    if (result === "close-socket") break;
+          links: serviceLinks,
+          connections: serviceConnections,
+        },
+      });
+      if (result === "close-socket") break;
+    } catch (err) {
+      log.error(
+        `error while handling command '${printEnum(RelayCommand, command)}'`,
+        err,
+      );
+      throw err;
+    }
   }
 }

@@ -6,7 +6,7 @@ import {
   encodeUint16,
   encodeWithUint16Length,
 } from "../../../common/safe-buffer.ts";
-import { safelyClose } from "../../../common/utils.ts";
+import { consumableAsyncQueue, safelyClose } from "../../../common/utils.ts";
 import { TunnelWriter } from "../../common/tunnel.common.types.ts";
 import { RelayCommand, RelayServiceType } from "../../tunnel.relay.ts";
 import { TunnelClientConnection } from "../tunnel.client.types.ts";
@@ -71,6 +71,10 @@ export async function handleTunnelClientService(
             resolve: finalize,
           } = Promise.withResolvers<void>();
 
+          const outputQueue = consumableAsyncQueue<Uint8Array<ArrayBuffer>>({
+            signal: actionSignal,
+          });
+
           let connected = false;
           connections.set(uid, {
             uid,
@@ -79,22 +83,17 @@ export async function handleTunnelClientService(
             onConnect: () => {
               connected = true;
 
-              asyncAction(async (connectionSignal) => {
-                try {
-                  requestLog.trace(`remote client connected`);
-                  client.emit({ ok: true, tunnel: serviceTunnel });
+              requestLog.trace(`remote client connected`);
+              client.emit({ ok: true, tunnel: serviceTunnel });
 
-                  await handleClientStream({
-                    uid,
-                    write,
-                    tunnel: relayTunnel,
-                    signal: connectionSignal,
-                    log: requestLog,
-                  });
-                } finally {
-                  finalize();
-                }
-              }, { signal: actionSignal });
+              handleClientStream({
+                uid,
+                write,
+                tunnel: relayTunnel,
+                signal: actionSignal,
+                log: requestLog,
+                outputQueue,
+              }).finally(finalize);
             },
             onError: (reason) => {
               requestLog.trace(`remote connection failed due to '${reason}'`);
@@ -103,6 +102,7 @@ export async function handleTunnelClientService(
               finalize();
             },
 
+            write: (content) => outputQueue.push(content),
             close: () => {
               requestLog.trace(`closing connection`);
               finalize();
