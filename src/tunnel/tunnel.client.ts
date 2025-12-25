@@ -56,7 +56,7 @@ export async function createTunnelRelayClient(
           valid: connectedOnce,
         });
 
-        options.log.debug(
+        options.log.info(
           `delay connection after #${failed} failed attempt(s), waiting ${waitDelay}ms`,
         );
 

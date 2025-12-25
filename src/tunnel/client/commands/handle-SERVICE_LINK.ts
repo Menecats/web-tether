@@ -17,7 +17,7 @@ import {
   TunnelClientLink,
 } from "../tunnel.client.types.ts";
 
-export const handle_SERVICE_LINK: TunnelClientCommandHandler = async (
+export const handle_SERVICE_LINK: TunnelClientCommandHandler = (
   { decoder, buffer, write, signal, services, log },
 ) => {
   const encodedUID = buffer.data(4, { ahead: true });
@@ -27,7 +27,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = async (
 
   if (uid >= 0 || services.links.has(uid)) {
     log.trace(`recevied link request, but has an invalid identifier`);
-    await write(
+    write(
       new Uint8Array([
         RelayCommand.SERVICE_LINK,
         ...encodedUID,
@@ -40,7 +40,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = async (
   const service = services.registered.get(name);
   if (!service) {
     log.trace(`recevied link request, but the service is not known`);
-    await write(
+    write(
       new Uint8Array([
         RelayCommand.SERVICE_LINK,
         ...encodedUID,

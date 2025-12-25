@@ -2,7 +2,7 @@ import { Logger } from "../../common/log.ts";
 
 export type TunnelWriter = (
   content: Uint8Array<ArrayBuffer> | ArrayBuffer,
-) => Promise<void>;
+) => void;
 
 export type TunnelRelayClientOptions = {
   endpoint: URL;

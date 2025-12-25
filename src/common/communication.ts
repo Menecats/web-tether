@@ -126,7 +126,7 @@ export function createCipheredWriter({ socket, security, signal, log }: {
     signal,
   });
 
-  const write: TunnelWriter = (data) => Promise.resolve(queue.push(data));
+  const write: TunnelWriter = (data) => queue.push(data);
   const { done } = asyncAction(async () => {
     try {
       while (!signal.aborted) {
