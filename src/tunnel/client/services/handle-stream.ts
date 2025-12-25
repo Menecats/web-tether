@@ -1,7 +1,7 @@
 import { abortable } from "@std/async/abortable";
 import { asyncAction } from "../../../common/async.ts";
 import { ConnectionTunnel } from "../../../common/communication.ts";
-import { Logger } from "../../../common/log.ts";
+import { Logger, prefixLogger } from "../../../common/log.ts";
 import { encodeInt32 } from "../../../common/safe-buffer.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { TunnelWriter } from "../../common/tunnel.common.types.ts";
@@ -9,6 +9,8 @@ import {
   RelayCommand,
   RelayServiceConnectionReason,
 } from "../../tunnel.relay.ts";
+
+export const streamClosed = Symbol("stream closed");
 
 export function handleClientStream({
   uid,
@@ -27,9 +29,10 @@ export function handleClientStream({
 }) {
   const encodedUID = encodeInt32(uid);
 
-  const writeActionDone = Symbol("read action done");
+  const writeActionDone = Symbol("write action done");
   const readActionDone = Symbol("read action done");
 
+  const writeLog = prefixLogger(log, "[write]");
   const writeAction = asyncAction(async (writeSignal) => {
     const writer = tunnel.writable.getWriter();
     try {
@@ -38,9 +41,11 @@ export function handleClientStream({
         await writer.write(next);
       }
     } catch (err) {
-      if (err !== readActionDone) {
+      if (err === readActionDone || err === streamClosed) {
+        writeLog.trace(`connection terminated`);
+      } else {
         if (!(err instanceof Deno.errors.Interrupted)) {
-          log.trace(
+          writeLog.trace(
             `connection closed unexpectedly, notifying closure`,
             err,
           );
@@ -66,6 +71,7 @@ export function handleClientStream({
     }
   }, { signal });
 
+  const readLog = prefixLogger(log, "[read]");
   const readAction = asyncAction(async (readSignal) => {
     const reader = tunnel.readable.getReader();
     try {
@@ -83,7 +89,7 @@ export function handleClientStream({
         if (buffer.done) break;
       }
 
-      log.trace(
+      readLog.trace(
         `connection closed cleanly, notifying closure`,
       );
 
@@ -95,9 +101,11 @@ export function handleClientStream({
         ]),
       );
     } catch (err) {
-      if (err !== writeActionDone) {
+      if (err === writeActionDone || err === streamClosed) {
+        readLog.trace(`connection terminated`);
+      } else {
         if (!(err instanceof Deno.errors.Interrupted)) {
-          log.trace(
+          readLog.trace(
             `connection closed unexpectedly, notifying closure`,
             err,
           );

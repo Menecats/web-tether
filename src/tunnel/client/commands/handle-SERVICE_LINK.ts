@@ -11,7 +11,7 @@ import {
   RelayServiceConnectionReason,
   RelayServiceType,
 } from "../../tunnel.relay.ts";
-import { handleClientStream } from "../services/handle-stream.ts";
+import { handleClientStream, streamClosed } from "../services/handle-stream.ts";
 import {
   TunnelClientCommandHandler,
   TunnelClientLink,
@@ -129,7 +129,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = (
   done.finally(() => {
     services.links.delete(uid);
 
-    serviceAbort.abort();
+    serviceAbort.abort(streamClosed);
     link.tunnel.then((c) => safelyClose(c));
   });
 };
