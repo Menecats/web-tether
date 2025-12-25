@@ -2,14 +2,14 @@ import { Logger } from "../../../common/log.ts";
 import { SafeReader, safeReader } from "../../../common/safe-buffer.ts";
 import { deriveRawSecret, deriveSessionKey } from "../../../common/security.ts";
 import { ConsumableAsyncQueue, randomWait } from "../../../common/utils.ts";
-import { RelayAuthentication, RelayVersion7 } from "../../tunnel.const.ts";
-import { TunnelServerError } from "../../tunnel.errors.ts";
+import { RelayAuthentication, RelayVersion7 } from "../../common/tunnel.const.ts";
+import { TunnelServerError } from "../../common/tunnel.errors.ts";
 import {
   createTunnelSecurity,
   noPermissions,
   TunnelSecurity,
-} from "../../tunnel.security.ts";
-import type { CreateTunnelRelayOptions } from "../../tunnel.server.ts";
+} from "../../common/tunnel.security.ts";
+import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
 
 export async function handleAdvencedAuthenticationServer(
   socket: WebSocket,

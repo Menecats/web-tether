@@ -10,8 +10,8 @@ import {
 } from "../../common/safe-buffer.ts";
 import { consumableAsyncQueue, printEnum } from "../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
-import { TunnelClientError } from "../tunnel.errors.ts";
-import { RelayCommand, RelayServiceType } from "../tunnel.relay.ts";
+import { TunnelClientError } from "../common/tunnel.errors.ts";
+import { RelayCommand, RelayServiceType } from "../server/tunnel.relay.ts";
 import { handleClientAuthentication } from "./auth/authentication.client.ts";
 import { fallbackCommandHandler } from "./commands/fallback-command-handler.ts";
 import { handle_SERVICE_BIND } from "./commands/handle-SERVICE_BIND.ts";

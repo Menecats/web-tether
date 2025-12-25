@@ -6,7 +6,7 @@ import {
 } from "../../../common/utils.ts";
 import { SocksTunnelResponse } from "../../../proxy/socks.common.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
-import { RelayServiceType } from "../../tunnel.relay.ts";
+import { RelayServiceType } from "../../server/tunnel.relay.ts";
 
 export type TunnelClientHandledRawSocketClient = {
   readonly type: RelayServiceType.RAW_SOCKET;

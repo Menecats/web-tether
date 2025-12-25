@@ -1,8 +1,8 @@
 import { colorizeOutput, createLogger } from "./common/log.ts";
 import { client, server } from "./common/test-keys.ts";
 import { TunnelRelayClientOptions } from "./tunnel/common/tunnel.common.types.ts";
-import { createTunnelRelayClient } from "./tunnel/tunnel.client.ts";
-import { TunnelClientError } from "./tunnel/tunnel.errors.ts";
+import { createTunnelRelayClient } from "./tunnel/client/tunnel.client.ts";
+import { TunnelClientError } from "./tunnel/common/tunnel.errors.ts";
 
 const controller = new AbortController();
 

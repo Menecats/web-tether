@@ -10,7 +10,7 @@ import {
   RelayLinkReply,
   RelayServiceConnectionReason,
   RelayServiceType,
-} from "../../tunnel.relay.ts";
+} from "../../server/tunnel.relay.ts";
 import { handleClientStream, streamClosed } from "../services/handle-stream.ts";
 import {
   TunnelClientCommandHandler,

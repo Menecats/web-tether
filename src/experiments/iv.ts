@@ -1,4 +1,4 @@
-import { encodeIV } from "../tunnel/tunnel.security.ts";
+import { encodeIV } from "../tunnel/common/tunnel.security.ts";
 
 console.log("relay");
 console.log("0x" + encodeIV("relay", 1n).toHex());

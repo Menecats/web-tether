@@ -9,7 +9,7 @@ import {
   RelayCommand,
   RelayServiceConnectionReason,
   RelayServiceType,
-} from "../tunnel.relay.ts";
+} from "../server/tunnel.relay.ts";
 
 export type TunnelClientCommandHandlerOptions = {
   encoder: TextEncoder;

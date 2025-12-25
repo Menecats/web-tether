@@ -1,16 +1,16 @@
 import { delay } from "@std/async/delay";
-import { prefixLogger } from "../common/log.ts";
-import { deriveSignal } from "../common/utils.ts";
-import { validateTunnelClientConfiguration } from "./client/config/validate.ts";
+import { prefixLogger } from "../../common/log.ts";
+import { deriveSignal } from "../../common/utils.ts";
+import { validateTunnelClientConfiguration } from "./config/validate.ts";
 import {
   createTunnelClientRawSocketSericeServer,
-} from "./client/services/raw-socket-server.service.ts";
+} from "./services/raw-socket-server.service.ts";
 import {
   createTunnelClientSocksProxyServiceServer,
-} from "./client/services/socks-proxy-server.service.ts";
-import { handleClientSocket } from "./client/tunnel-handle.client.ts";
-import { TunnelRelayClientOptions } from "./common/tunnel.common.types.ts";
-import { TunnelClientError } from "./tunnel.errors.ts";
+} from "./services/socks-proxy-server.service.ts";
+import { handleClientSocket } from "./tunnel-handle.client.ts";
+import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
+import { TunnelClientError } from "../common/tunnel.errors.ts";
 
 export async function createTunnelRelayClient(
   options: TunnelRelayClientOptions,

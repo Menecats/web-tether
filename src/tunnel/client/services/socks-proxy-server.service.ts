@@ -9,7 +9,7 @@ import {
 } from "../../../proxy/socks.common.ts";
 import { createSocksServer } from "../../../proxy/socks.server.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
-import { RelayServiceType } from "../../tunnel.relay.ts";
+import { RelayServiceType } from "../../server/tunnel.relay.ts";
 
 export type TunnelClientHandledSocksProxyClient = {
   readonly type: RelayServiceType.SOCKS_PROXY;

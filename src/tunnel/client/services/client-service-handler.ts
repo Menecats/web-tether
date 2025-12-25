@@ -8,7 +8,7 @@ import {
 } from "../../../common/safe-buffer.ts";
 import { consumableAsyncQueue, safelyClose } from "../../../common/utils.ts";
 import { TunnelWriter } from "../../common/tunnel.common.types.ts";
-import { RelayCommand, RelayServiceType } from "../../tunnel.relay.ts";
+import { RelayCommand, RelayServiceType } from "../../server/tunnel.relay.ts";
 import { TunnelClientConnection } from "../tunnel.client.types.ts";
 import { handleClientStream } from "./handle-stream.ts";
 import {

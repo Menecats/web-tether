@@ -1,6 +1,6 @@
 import { TunnelWriter } from "../tunnel/common/tunnel.common.types.ts";
-import { TunnelClientError } from "../tunnel/tunnel.errors.ts";
-import { TunnelSecurity } from "../tunnel/tunnel.security.ts";
+import { TunnelClientError } from "../tunnel/common/tunnel.errors.ts";
+import { TunnelSecurity } from "../tunnel/common/tunnel.security.ts";
 import { asyncAction } from "./async.ts";
 import { Logger } from "./log.ts";
 import { ConsumableAsyncQueue, consumableAsyncQueue } from "./utils.ts";

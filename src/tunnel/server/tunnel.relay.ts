@@ -1,25 +1,25 @@
 import {
   createCipheredWriter,
   createDecipheredQueue,
-} from "../common/communication.ts";
-import { Logger, prefixLogger } from "../common/log.ts";
+} from "../../common/communication.ts";
+import { Logger, prefixLogger } from "../../common/log.ts";
 import {
   encodeInt32,
   encodeWithUint16Length,
   safeReader,
-} from "../common/safe-buffer.ts";
+} from "../../common/safe-buffer.ts";
 import {
   ConsumableAsyncQueue,
   consumableAsyncQueue,
   printEnum,
   safelyClose,
-} from "../common/utils.ts";
-import { handleAdvencedAuthenticationServer } from "./auth/server/advanced-authentication.server.ts";
-import { handleBasicAuthenticationServer } from "./auth/server/basic-authentication.server.ts";
-import { TunnelWriter } from "./common/tunnel.common.types.ts";
-import { RelayAuthentication, RelayVersion7 } from "./tunnel.const.ts";
-import { TunnelServerError } from "./tunnel.errors.ts";
-import { TunnelSecurity } from "./tunnel.security.ts";
+} from "../../common/utils.ts";
+import { handleAdvencedAuthenticationServer } from "./auth/advanced-authentication.server.ts";
+import { handleBasicAuthenticationServer } from "./auth/basic-authentication.server.ts";
+import { TunnelWriter } from "../common/tunnel.common.types.ts";
+import { RelayAuthentication, RelayVersion7 } from "../common/tunnel.const.ts";
+import { TunnelServerError } from "../common/tunnel.errors.ts";
+import { TunnelSecurity } from "../common/tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "./tunnel.server.ts";
 
 export enum RelayBindReply {

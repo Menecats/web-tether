@@ -8,7 +8,7 @@ import { TunnelWriter } from "../../common/tunnel.common.types.ts";
 import {
   RelayCommand,
   RelayServiceConnectionReason,
-} from "../../tunnel.relay.ts";
+} from "../../server/tunnel.relay.ts";
 
 export const streamClosed = Symbol("stream closed");
 

@@ -1,5 +1,5 @@
 import { printEnum } from "../../../common/utils.ts";
-import { RelayBindReply } from "../../tunnel.relay.ts";
+import { RelayBindReply } from "../../server/tunnel.relay.ts";
 import { TunnelClientCommandHandler } from "../tunnel.client.types.ts";
 
 export const handle_SERVICE_BIND: TunnelClientCommandHandler = (

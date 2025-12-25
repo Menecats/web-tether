@@ -1,7 +1,7 @@
 import {
   RelayCommand,
   RelayServiceConnectionReason,
-} from "../../tunnel.relay.ts";
+} from "../../server/tunnel.relay.ts";
 import { TunnelClientCommandHandler } from "../tunnel.client.types.ts";
 
 export const handle_SERVICE_STREAM: TunnelClientCommandHandler = (

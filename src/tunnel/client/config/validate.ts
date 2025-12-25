@@ -1,6 +1,6 @@
 import { verifyCryptoKeyPair } from "../../../common/security.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
-import { TunnelClientError } from "../../tunnel.errors.ts";
+import { TunnelClientError } from "../../common/tunnel.errors.ts";
 
 export async function validateTunnelClientConfiguration(
   options: TunnelRelayClientOptions,

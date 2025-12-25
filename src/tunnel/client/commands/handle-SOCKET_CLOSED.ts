@@ -1,4 +1,4 @@
-import { RelayCommand } from "../../tunnel.relay.ts";
+import { RelayCommand } from "../../server/tunnel.relay.ts";
 import { TunnelClientCommandHandler } from "../tunnel.client.types.ts";
 
 export const handle_SOCKET_CLOSED: TunnelClientCommandHandler = (
