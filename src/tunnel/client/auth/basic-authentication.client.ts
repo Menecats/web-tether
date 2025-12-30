@@ -3,9 +3,15 @@ import { safeReader } from "../../../common/safe-buffer.ts";
 import { pbkdf2Hash512 } from "../../../common/security.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
-import { RelayAuthentication, RelayVersion7 } from "../../common/tunnel.const.ts";
+import {
+  RelayAuthentication,
+  RelayVersion7,
+} from "../../common/tunnel.const.ts";
 import { TunnelClientError } from "../../common/tunnel.errors.ts";
-import { createTunnelSecurity, TunnelSecurity } from "../../common/tunnel.security.ts";
+import {
+  createTunnelSecurity,
+  TunnelSecurity,
+} from "../../common/tunnel.security.ts";
 
 export type HandleClientBasicAuthenticationOptions = {
   socket: WebSocket;

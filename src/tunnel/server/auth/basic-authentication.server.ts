@@ -5,9 +5,15 @@ import {
   ConsumableAsyncQueue,
   randomWait,
 } from "../../../common/utils.ts";
-import { RelayAuthentication, RelayVersion7 } from "../../common/tunnel.const.ts";
+import {
+  RelayAuthentication,
+  RelayVersion7,
+} from "../../common/tunnel.const.ts";
 import { TunnelServerError } from "../../common/tunnel.errors.ts";
-import { createTunnelSecurity, TunnelSecurity } from "../../common/tunnel.security.ts";
+import {
+  createTunnelSecurity,
+  TunnelSecurity,
+} from "../../common/tunnel.security.ts";
 import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
 
 const instanceMockSalt = crypto.getRandomValues(new Uint8Array(16));
