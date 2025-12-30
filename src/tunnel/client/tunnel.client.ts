@@ -1,6 +1,8 @@
 import { delay } from "@std/async/delay";
 import { prefixLogger } from "../../common/log.ts";
 import { deriveSignal } from "../../common/utils.ts";
+import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
+import { TunnelClientError } from "../common/tunnel.errors.ts";
 import { validateTunnelClientConfiguration } from "./config/validate.ts";
 import {
   createTunnelClientRawSocketSericeServer,
@@ -9,8 +11,6 @@ import {
   createTunnelClientSocksProxyServiceServer,
 } from "./services/socks-proxy-server.service.ts";
 import { handleClientSocket } from "./tunnel-handle.client.ts";
-import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
-import { TunnelClientError } from "../common/tunnel.errors.ts";
 
 export async function createTunnelRelayClient(
   options: TunnelRelayClientOptions,
@@ -18,18 +18,17 @@ export async function createTunnelRelayClient(
   options.log.debug("validate configuration");
   await validateTunnelClientConfiguration(options);
 
-  if (options.services.proxyClient.length) {
+  if (options.services.proxyClient.enabled) {
     options.log.debug("create [socks-proxy] listeners");
   }
-  const socksProxyListeners = options.services.proxyClient
-    .map((proxy) =>
-      createTunnelClientSocksProxyServiceServer({
-        proxy,
-        handleTimeout: options.performance.connectionHandleTimeout,
-        log: prefixLogger(options.log, `[socks-proxy:${proxy.service}]`),
-        signal: options.signal,
-      })
-    );
+  const socksProxyListeners = options.services.proxyClient.enabled
+    ? [createTunnelClientSocksProxyServiceServer({
+      proxy: options.services.proxyClient,
+      handleTimeout: options.performance.connectionHandleTimeout,
+      log: prefixLogger(options.log, `[socks-proxy]`),
+      signal: options.signal,
+    })]
+    : [];
 
   if (options.services.connect.length) {
     options.log.debug("create [raw-socket listeners");

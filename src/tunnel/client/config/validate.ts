@@ -39,7 +39,9 @@ export async function validateTunnelClientConfiguration(
   }
 
   const boundAddresses: Deno.TcpListenOptions[] = [
-    options.services.proxyClient.map((c) => c.address),
+    options.services.proxyClient.enabled
+      ? [options.services.proxyClient.address]
+      : [],
     options.services.connect.map((c) => c.source),
   ].flat();
   const duplicatePorts = [

@@ -1,7 +1,7 @@
 import { colorizeOutput, createLogger } from "./common/log.ts";
 import { client, server } from "./common/test-keys.ts";
-import { TunnelRelayClientOptions } from "./tunnel/common/tunnel.common.types.ts";
 import { createTunnelRelayClient } from "./tunnel/client/tunnel.client.ts";
+import { TunnelRelayClientOptions } from "./tunnel/common/tunnel.common.types.ts";
 import { TunnelClientError } from "./tunnel/common/tunnel.errors.ts";
 
 const controller = new AbortController();
@@ -53,8 +53,18 @@ await createTunnelRelayClient({
       ? { enabled: true, service: "proxy" }
       : { enabled: false },
     proxyClient: isClient
-      ? [{ service: "proxy", address: { port: 1080 } }]
-      : [],
+      ? {
+        enabled: true,
+        address: { port: 1080 },
+        destination: (request) => {
+          return {
+            type: "relay",
+            destination: request,
+            service: "proxy",
+          };
+        },
+      }
+      : { enabled: false },
     bind: [],
     connect: [],
   },

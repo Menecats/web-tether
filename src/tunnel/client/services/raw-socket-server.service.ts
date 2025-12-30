@@ -10,6 +10,7 @@ import { RelayServiceType } from "../../server/tunnel.relay.ts";
 
 export type TunnelClientHandledRawSocketClient = {
   readonly type: RelayServiceType.RAW_SOCKET;
+  readonly service: string;
   readonly emit: (tunnel: SocksTunnelResponse) => void;
   readonly log: Logger;
 
@@ -64,6 +65,7 @@ export function createTunnelClientRawSocketSericeServer(
 
         const client: TunnelClientHandledRawSocketClient = {
           type: RelayServiceType.RAW_SOCKET,
+          service: options.connection.service,
           emit: resolve,
           log: connectionLog,
           expired: false,

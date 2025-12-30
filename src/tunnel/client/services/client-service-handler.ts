@@ -45,9 +45,11 @@ export async function handleTunnelClientService(
   },
 ) {
   await Promise.all(services.map((service) => {
-    const serviceLog = prefixLogger(log, `[${service.definition.service}]`);
-    const encodedService = encodeWithUint16Length(
-      encoder.encode(service.definition.service),
+    const serviceLog = prefixLogger(
+      log,
+      `[${
+        "service" in service.definition ? service.definition.service : "@proxy"
+      }]`,
     );
 
     return asyncAction(async (actionSignal) => {
@@ -133,7 +135,7 @@ export async function handleTunnelClientService(
               RelayCommand.SERVICE_CONNECT,
               ...encodedUID,
               client.type,
-              ...encodedService,
+              ...encodeWithUint16Length(encoder.encode(client.service)),
               ...serviceParameters,
             ]),
           );
