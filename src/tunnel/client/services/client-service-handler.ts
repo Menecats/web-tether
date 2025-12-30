@@ -6,7 +6,11 @@ import {
   encodeUint16,
   encodeWithUint16Length,
 } from "../../../common/safe-buffer.ts";
-import { consumableAsyncQueue, safelyClose } from "../../../common/utils.ts";
+import {
+  cancellableAbort,
+  consumableAsyncQueue,
+  safelyClose,
+} from "../../../common/utils.ts";
 import { TunnelWriter } from "../../common/tunnel.common.types.ts";
 import { RelayCommand, RelayServiceType } from "../../server/tunnel.relay.ts";
 import { TunnelClientConnection } from "../tunnel.client.types.ts";
@@ -77,6 +81,13 @@ export async function handleTunnelClientService(
             signal: actionSignal,
           });
 
+          const onAbort = cancellableAbort(actionSignal, (reason) => {
+            requestLog.trace(`remote connection cancelled`, reason);
+            client.emit({ ok: false, error: "general-failure" });
+
+            finalize();
+          });
+
           let connected = false;
           connections.set(uid, {
             uid,
@@ -114,6 +125,7 @@ export async function handleTunnelClientService(
           done.finally(() => {
             connections.delete(uid);
             safelyClose(relayTunnel);
+            onAbort.cancel();
             if (!connected) {
               client.emit({ ok: false, error: "general-failure" });
             }

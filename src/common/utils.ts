@@ -27,6 +27,24 @@ export function safelyClose(
   }
 }
 
+export function cancellableAbort(
+  signal: AbortSignal,
+  action: (reason: unknown) => void,
+): { cancel: () => void } {
+  if (signal.aborted) {
+    try {
+      action(signal.reason);
+      return { cancel: () => undefined };
+    } catch { /* Ignore errors */ }
+  }
+
+  const wrappedAction = () => action(signal.reason);
+  signal.addEventListener("abort", wrappedAction, { once: true });
+  return {
+    cancel: () => signal.removeEventListener("abort", wrappedAction),
+  };
+}
+
 export function printEnum<
   T extends number,
   E extends Record<number, string>,
