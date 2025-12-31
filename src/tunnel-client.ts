@@ -45,7 +45,7 @@ await createTunnelRelayClient({
   },
 
   auth: advanced ? advancedAuth : basicAuth,
-  log: createLogger(colorizeOutput()),
+  log: createLogger(colorizeOutput(console.log)),
   signal: controller.signal,
 
   services: {

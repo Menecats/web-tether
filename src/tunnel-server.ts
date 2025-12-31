@@ -84,6 +84,6 @@ await createTunnelRelayServer({
       },
     },
   },
-  log: createLogger(colorizeOutput()),
+  log: createLogger(colorizeOutput(console.log)),
   signal: controller.signal,
 });

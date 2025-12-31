@@ -45,6 +45,7 @@ export function prefixLogger(
 }
 
 export function colorizeOutput(
+  output: (...args: unknown[]) => void,
   filter: (level: LogLevel) => boolean = () => true,
 ): (
   level: LogLevel,
@@ -81,7 +82,7 @@ export function colorizeOutput(
       return "[" + markerColors.get(marker)!(marker) + "]";
     });
 
-    console.log(
+    output(
       level,
       ...colorizedContent,
     );
