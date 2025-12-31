@@ -6,7 +6,7 @@ import {
 import {
   deriveRawSecret,
   deriveSessionKey,
-  hashCryptoKey,
+  hashPublicKey,
 } from "../../../common/security.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
@@ -32,7 +32,7 @@ export async function handleClientAdvancedAuthentication(
   log.debug(`initializing`);
 
   log.trace(`hashing client key`);
-  const clientKeyHash = await hashCryptoKey(auth.clientKeys.publicKey);
+  const clientKeyHash = await hashPublicKey(auth.clientKeys.publicKey);
 
   log.trace(`sending handshake`);
   socket.send(
