@@ -2,15 +2,25 @@
   "version": "5",
   "specifiers": {
     "jsr:@std/async@^1.0.15": "1.0.15",
+    "jsr:@std/cli@^1.0.25": "1.0.25",
     "jsr:@std/crypto@^1.0.5": "1.0.5",
     "jsr:@std/fmt@^1.0.8": "1.0.8",
+    "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/net@^1.0.6": "1.0.6",
+    "jsr:@std/path@^1.1.4": "1.1.4",
     "npm:@types/chroma-js@^3.1.2": "3.1.2",
-    "npm:chroma-js@^3.2.0": "3.2.0"
+    "npm:chroma-js@^3.2.0": "3.2.0",
+    "npm:zod@^4.2.1": "4.2.1"
   },
   "jsr": {
     "@std/async@1.0.15": {
       "integrity": "55d1d9d04f99403fe5730ab16bdcc3c47f658a6bf054cafb38a50f046238116e"
+    },
+    "@std/cli@1.0.25": {
+      "integrity": "1f85051b370c97a7a9dfc6ba626e7ed57a91bea8c081597276d1e78d929d8c91",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
     },
     "@std/crypto@1.0.5": {
       "integrity": "0dcfbb319fe0bba1bd3af904ceb4f948cde1b92979ec1614528380ed308a3b40"
@@ -18,8 +28,17 @@
     "@std/fmt@1.0.8": {
       "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
     },
+    "@std/internal@1.0.12": {
+      "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
+    },
     "@std/net@1.0.6": {
       "integrity": "110735f93e95bb9feb95790a8b1d1bf69ec0dc74f3f97a00a76ea5efea25500c"
+    },
+    "@std/path@1.1.4": {
+      "integrity": "1d2d43f39efb1b42f0b1882a25486647cb851481862dc7313390b2bb044314b5",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
     }
   },
   "npm": {
@@ -28,16 +47,22 @@
     },
     "chroma-js@3.2.0": {
       "integrity": "sha512-os/OippSlX1RlWWr+QDPcGUZs0uoqr32urfxESG9U93lhUfbnlyckte84Q8P1UQY/qth983AS1JONKmLS4T0nw=="
+    },
+    "zod@4.2.1": {
+      "integrity": "sha512-0wZ1IRqGGhMP76gLqz8EyfBXKk0J2qo2+H3fi4mcUP/KtTocoX08nmIAHl1Z2kJIZbZee8KOpBCSNPRgauucjw=="
     }
   },
   "workspace": {
     "dependencies": [
       "jsr:@std/async@^1.0.15",
+      "jsr:@std/cli@^1.0.25",
       "jsr:@std/crypto@^1.0.5",
       "jsr:@std/fmt@^1.0.8",
       "jsr:@std/net@^1.0.6",
+      "jsr:@std/path@^1.1.4",
       "npm:@types/chroma-js@^3.1.2",
-      "npm:chroma-js@^3.2.0"
+      "npm:chroma-js@^3.2.0",
+      "npm:zod@^4.2.1"
     ]
   }
 }

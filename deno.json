@@ -9,10 +9,13 @@
   },
   "imports": {
     "@std/async": "jsr:@std/async@^1.0.15",
+    "@std/cli": "jsr:@std/cli@^1.0.25",
     "@std/crypto": "jsr:@std/crypto@^1.0.5",
     "@std/fmt": "jsr:@std/fmt@^1.0.8",
     "@std/net": "jsr:@std/net@^1.0.6",
+    "@std/path": "jsr:@std/path@^1.1.4",
     "@types/chroma-js": "npm:@types/chroma-js@^3.1.2",
-    "chroma-js": "npm:chroma-js@^3.2.0"
+    "chroma-js": "npm:chroma-js@^3.2.0",
+    "zod": "npm:zod@^4.2.1"
   }
 }

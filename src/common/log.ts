@@ -9,7 +9,9 @@ import {
 import chroma from "chroma-js";
 import { newRNG } from "./rng.ts";
 
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error";
+export const LogLevels = ["trace", "debug", "info", "warn", "error"] as const;
+
+export type LogLevel = typeof LogLevels[number];
 export type LogFunction = (...content: unknown[]) => void;
 export type Logger = Record<LogLevel, LogFunction>;
 
@@ -82,8 +84,10 @@ export function colorizeOutput(
       return "[" + markerColors.get(marker)!(marker) + "]";
     });
 
+    const maxLength = Math.max(...LogLevels.map((l) => l.length));
+
     output(
-      level,
+      `[${colorize(level.padEnd(maxLength).toUpperCase())}]`,
       ...colorizedContent,
     );
   };

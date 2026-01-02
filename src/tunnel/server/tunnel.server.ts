@@ -1,9 +1,8 @@
-import { log } from "node:console";
 import { Logger, prefixLogger } from "../../common/log.ts";
 import { verifyCryptoKeyPair } from "../../common/security.ts";
-import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
-import { TunnelSecurityPermissions } from "../common/tunnel.security.ts";
 import { TunnelServerError } from "../common/tunnel.errors.ts";
+import { TunnelSecurityPermissions } from "../common/tunnel.security.ts";
+import { createRelay, handleSocketRelay } from "./tunnel.relay.ts";
 
 export type CreateTunnelRelayOptions = {
   listen: { port: number; hostname: string };
