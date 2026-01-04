@@ -8,6 +8,7 @@
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/net@^1.0.6": "1.0.6",
     "jsr:@std/path@^1.1.4": "1.1.4",
+    "jsr:@std/yaml@^1.0.10": "1.0.10",
     "npm:@types/chroma-js@^3.1.2": "3.1.2",
     "npm:chroma-js@^3.2.0": "3.2.0",
     "npm:zod@^4.2.1": "4.2.1"
@@ -39,6 +40,9 @@
       "dependencies": [
         "jsr:@std/internal"
       ]
+    },
+    "@std/yaml@1.0.10": {
+      "integrity": "245706ea3511cc50c8c6d00339c23ea2ffa27bd2c7ea5445338f8feff31fa58e"
     }
   },
   "npm": {
@@ -60,6 +64,7 @@
       "jsr:@std/fmt@^1.0.8",
       "jsr:@std/net@^1.0.6",
       "jsr:@std/path@^1.1.4",
+      "jsr:@std/yaml@^1.0.10",
       "npm:@types/chroma-js@^3.1.2",
       "npm:chroma-js@^3.2.0",
       "npm:zod@^4.2.1"

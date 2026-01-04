@@ -29,12 +29,12 @@ export type TunnelRelayClientOptions = {
 
   auth:
     | {
-      mode: "basic";
+      mode: "credentials";
       identifier: string;
       passkey: string;
     }
     | {
-      mode: "advanced";
+      mode: "identity";
       serverKey: CryptoKey;
       clientKeys: CryptoKeyPair;
     };

@@ -14,12 +14,12 @@ import {
   printEnum,
   safelyClose,
 } from "../../common/utils.ts";
-import { handleAdvencedAuthenticationServer } from "./auth/advanced-authentication.server.ts";
-import { handleBasicAuthenticationServer } from "./auth/basic-authentication.server.ts";
 import { TunnelWriter } from "../common/tunnel.common.types.ts";
 import { RelayAuthentication, RelayVersion7 } from "../common/tunnel.const.ts";
 import { TunnelServerError } from "../common/tunnel.errors.ts";
 import { TunnelSecurity } from "../common/tunnel.security.ts";
+import { handleCredentialsAuthenticationServer } from "./auth/credentials-authentication.server.ts";
+import { handleAdvencedAuthenticationServer } from "./auth/identity-authentication.server.ts";
 import type { CreateTunnelRelayOptions } from "./tunnel.server.ts";
 
 export enum RelayBindReply {
@@ -152,13 +152,13 @@ async function authenticateRelay(
   log.trace(`using appropriate authenticaiton schema.`);
 
   if (authMode === RelayAuthentication.BASIC_AUTH) {
-    if (auth.basic.enabled) {
-      return await handleBasicAuthenticationServer(
+    if (auth.credentials.enabled) {
+      return await handleCredentialsAuthenticationServer(
         socket,
         queue,
-        auth.basic,
+        auth.credentials,
         packet,
-        prefixLogger(log, "[basic]"),
+        prefixLogger(log, "[credentials]"),
       );
     } else {
       socket.send(
@@ -172,13 +172,13 @@ async function authenticateRelay(
   }
 
   if (authMode === RelayAuthentication.ADVANCED_AUTH) {
-    if (auth.advanced.enabled) {
+    if (auth.identity.enabled) {
       return await handleAdvencedAuthenticationServer(
         socket,
         queue,
-        auth.advanced,
+        auth.identity,
         packet,
-        prefixLogger(log, "[advanced]"),
+        prefixLogger(log, "[identity]"),
       );
     } else {
       socket.send(

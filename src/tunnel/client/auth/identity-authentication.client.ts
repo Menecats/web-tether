@@ -1,6 +1,13 @@
 import { Logger } from "../../../common/log.ts";
-import { safeReader } from "../../../common/safe-buffer.ts";
-import { pbkdf2Hash512 } from "../../../common/security.ts";
+import {
+  encodeWithUint8Length,
+  safeReader,
+} from "../../../common/safe-buffer.ts";
+import {
+  deriveRawSecret,
+  deriveSessionKey,
+  hashPublicKey,
+} from "../../../common/security.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
 import {
@@ -13,36 +20,45 @@ import {
   TunnelSecurity,
 } from "../../common/tunnel.security.ts";
 
-export type HandleClientBasicAuthenticationOptions = {
+export type HandleClientIdentityAuthenticationOptions = {
   socket: WebSocket;
   queue: ConsumableAsyncQueue<ArrayBuffer>;
-  auth: TunnelRelayClientOptions["auth"] & { mode: "basic" };
+  auth: TunnelRelayClientOptions["auth"] & { mode: "identity" };
   log: Logger;
 };
-export async function handleClientBasicAuthentication(
-  { socket, queue, auth, log }: HandleClientBasicAuthenticationOptions,
+export async function handleClientIdentityAuthentication(
+  { socket, queue, auth, log }: HandleClientIdentityAuthenticationOptions,
 ): Promise<TunnelSecurity<"client">> {
   log.debug(`initializing`);
 
-  const encoder = new TextEncoder();
-
-  const encodedIdentifier = encoder.encode(auth.identifier);
+  log.trace(`hashing client key`);
+  const clientKeyHash = await hashPublicKey(auth.clientKeys.publicKey);
 
   log.trace(`sending handshake`);
   socket.send(
     new Uint8Array([
       RelayVersion7,
-      RelayAuthentication.BASIC_AUTH,
-
-      encodedIdentifier.length,
-      ...encodedIdentifier,
+      RelayAuthentication.ADVANCED_AUTH,
+      ...encodeWithUint8Length(clientKeyHash),
     ]),
+  );
+
+  log.trace(`creating session info`);
+  const sessionInfo = new Uint8Array([
+    RelayVersion7,
+    RelayAuthentication.ADVANCED_AUTH,
+  ]);
+
+  log.trace(`deriving shared secret`);
+  const sharedSecret = await deriveRawSecret(
+    auth.clientKeys.privateKey,
+    auth.serverKey,
   );
 
   log.trace(`waiting for challenge`);
   const authChallenge = safeReader(
     await queue.shift({
-      timeout: 1000, // TODO: Timeout
+      timeout: 1000,
       timeoutError: () => new TunnelClientError({ reason: "timeout" }),
     }),
     () => new TunnelClientError({ reason: "buffer-too-short" }),
@@ -58,51 +74,25 @@ export async function handleClientBasicAuthentication(
   }
 
   const challengeAuthMode = authChallenge.uint8();
-  if (challengeAuthMode !== RelayAuthentication.BASIC_AUTH) {
+  if (challengeAuthMode !== RelayAuthentication.ADVANCED_AUTH) {
     throw new TunnelClientError({
       reason: "auth-mode-unexpected",
-      expectedAuth: RelayAuthentication.BASIC_AUTH,
+      expectedAuth: RelayAuthentication.ADVANCED_AUTH,
       receivedAuth: challengeAuthMode,
     });
   }
 
   log.trace(`reading handshake salt`);
-  const salt = authChallenge.data(authChallenge.uint8());
+  const sessionSalt = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`reading handshake iv`);
-  const handshakeIV = authChallenge.data(authChallenge.uint8());
+  log.trace(`reading encrypted challenge`);
+  const encryptedChallenge = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`reading chiphered session key`);
-  const cipheredSessionKey = authChallenge.data(authChallenge.uint8());
-
-  log.trace(`deriving shared hash`);
-  const hash = new Uint8Array(
-    await pbkdf2Hash512(
-      encoder.encode(auth.passkey),
-      salt,
-    ),
-  );
-
-  log.trace(`deriving decryption key`);
-  const handshakeKey = await crypto.subtle.importKey(
-    "raw",
-    hash,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-
-  log.trace(`decrypting session key`);
-  const sessionKey = await crypto.subtle.importKey(
-    "raw",
-    await crypto.subtle.decrypt(
-      { name: "AES-GCM", length: 256, iv: handshakeIV },
-      handshakeKey,
-      cipheredSessionKey,
-    ),
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
+  log.trace(`deriving session key`);
+  const sessionKey = await deriveSessionKey(
+    sharedSecret,
+    sessionSalt,
+    sessionInfo,
   );
 
   log.trace(`instantiating session security`);
@@ -118,13 +108,19 @@ export async function handleClientBasicAuthentication(
       }),
   });
 
+  log.trace(`decrypting challenge`);
+  const decryptedChallenge = new Uint8Array(
+    await security.decrypt(encryptedChallenge),
+  );
+
   log.trace(`solving challenge`);
   socket.send(
     await security.encrypt(
       new Uint8Array([
         RelayVersion7,
-        RelayAuthentication.BASIC_AUTH,
-        ...hash,
+        RelayAuthentication.ADVANCED_AUTH,
+
+        ...decryptedChallenge,
       ]),
     ),
   );

@@ -17,7 +17,7 @@ import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
 export async function handleAdvencedAuthenticationServer(
   socket: WebSocket,
   queue: ConsumableAsyncQueue<ArrayBuffer>,
-  auth: CreateTunnelRelayOptions["auth"]["advanced"] & { enabled: true },
+  auth: CreateTunnelRelayOptions["auth"]["identity"] & { enabled: true },
   buffer: SafeReader,
   log: Logger,
 ): Promise<TunnelSecurity<"relay">> {

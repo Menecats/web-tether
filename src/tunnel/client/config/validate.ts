@@ -5,7 +5,7 @@ import { TunnelClientError } from "../../common/tunnel.errors.ts";
 export async function validateTunnelClientConfiguration(
   options: TunnelRelayClientOptions,
 ) {
-  if (options.auth.mode === "advanced") {
+  if (options.auth.mode === "identity") {
     const valid = await verifyCryptoKeyPair(
       options.auth.clientKeys,
     );

@@ -1,4 +1,3 @@
-import { gray, red, yellow } from "@std/fmt/colors";
 import { colorizeOutput, createLogger } from "./common/log.ts";
 import { areBuffersEqual } from "./common/safe-buffer.ts";
 import { pbkdf2Hash512 } from "./common/security.ts";
@@ -48,7 +47,7 @@ await createTunnelRelayServer({
   listen: { hostname: "0.0.0.0", port: 3456 },
   performance: { decryptQueueSize: 1024 },
   auth: {
-    basic: {
+    credentials: {
       enabled: true,
       lookup: (identifier) => {
         return identifier === "test"
@@ -60,7 +59,7 @@ await createTunnelRelayServer({
           : Promise.resolve(undefined);
       },
     },
-    advanced: {
+    identity: {
       enabled: true,
       serverKeys: server,
       lookupClient: async (hash) => {

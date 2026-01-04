@@ -1,8 +1,8 @@
 import { Logger, prefixLogger } from "../../../common/log.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
-import { handleClientAdvancedAuthentication } from "./advanced-authentication.client.ts";
-import { handleClientBasicAuthentication } from "./basic-authentication.client.ts";
+import { handleClientCredentialsAuthentication } from "./credentials-authentication.client.ts";
+import { handleClientIdentityAuthentication } from "./identity-authentication.client.ts";
 
 export type HandleClientAuthenticationOptions = {
   socket: WebSocket;
@@ -13,17 +13,17 @@ export type HandleClientAuthenticationOptions = {
 export async function handleClientAuthentication(
   { socket, queue, auth, log }: HandleClientAuthenticationOptions,
 ) {
-  return auth.mode === "basic"
-    ? await handleClientBasicAuthentication({
+  return auth.mode === "credentials"
+    ? await handleClientCredentialsAuthentication({
       socket,
       queue,
       auth,
-      log: prefixLogger(log, "[basic]"),
+      log: prefixLogger(log, "[credentials]"),
     })
-    : await handleClientAdvancedAuthentication({
+    : await handleClientIdentityAuthentication({
       socket,
       queue,
       auth,
-      log: prefixLogger(log, "[advanced]"),
+      log: prefixLogger(log, "[identity]"),
     });
 }

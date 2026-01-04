@@ -13,7 +13,7 @@ export type CreateTunnelRelayOptions = {
   };
 
   auth: {
-    basic:
+    credentials:
       | { enabled: false }
       | {
         enabled: true;
@@ -29,7 +29,7 @@ export type CreateTunnelRelayOptions = {
         >;
       };
 
-    advanced:
+    identity:
       | { enabled: false }
       | {
         enabled: true;
@@ -56,10 +56,10 @@ export async function createTunnelRelayServer(
   }
 
   options.log.debug(`validating configuration.`);
-  if (options.auth.advanced.enabled) {
-    options.log.trace(`validating 'advanced' authentication server key pair.`);
+  if (options.auth.identity.enabled) {
+    options.log.trace(`validating 'identity' authentication server key pair.`);
     const valid = await verifyCryptoKeyPair(
-      options.auth.advanced.serverKeys,
+      options.auth.identity.serverKeys,
     );
     if (!valid) {
       throw new TunnelServerError({

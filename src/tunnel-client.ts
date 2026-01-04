@@ -14,23 +14,23 @@ Deno.addSignalListener("SIGINT", () => {
 const isClient = Deno.args.includes("client");
 const isServer = Deno.args.includes("server");
 
-const advanced = Deno.args.includes("advanced");
-const basic = Deno.args.includes("basic");
+const identity = Deno.args.includes("identity");
+const credentials = Deno.args.includes("credentials");
 
-if (!advanced && !basic) {
-  throw new Error("must decide if basic or advanced auth");
+if (!identity && !credentials) {
+  throw new Error("must decide if credentials or identity auth");
 }
-if (advanced && basic) {
-  throw new Error("can pick only basic or advanced");
+if (identity && credentials) {
+  throw new Error("can pick only credentials or identity");
 }
 
-const basicAuth = {
-  mode: "basic",
+const credentialsAuth = {
+  mode: "credentials",
   identifier: "test",
   passkey: "test",
 } satisfies TunnelRelayClientOptions["auth"];
-const advancedAuth = {
-  mode: "advanced",
+const identityAuth = {
+  mode: "identity",
   serverKey: server.publicKey,
   clientKeys: client,
 } satisfies TunnelRelayClientOptions["auth"];
@@ -44,7 +44,7 @@ await createTunnelRelayClient({
     reconnectDelay: (context) => 5000,
   },
 
-  auth: advanced ? advancedAuth : basicAuth,
+  auth: identity ? identityAuth : credentialsAuth,
   log: createLogger(colorizeOutput(console.log)),
   signal: controller.signal,
 

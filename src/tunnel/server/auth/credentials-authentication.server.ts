@@ -18,10 +18,10 @@ import type { CreateTunnelRelayOptions } from "../tunnel.server.ts";
 
 const instanceMockSalt = crypto.getRandomValues(new Uint8Array(16));
 
-export async function handleBasicAuthenticationServer(
+export async function handleCredentialsAuthenticationServer(
   socket: WebSocket,
   queue: ConsumableAsyncQueue<ArrayBuffer>,
-  auth: CreateTunnelRelayOptions["auth"]["basic"] & { enabled: true },
+  auth: CreateTunnelRelayOptions["auth"]["credentials"] & { enabled: true },
   buffer: SafeReader,
   log: Logger,
 ): Promise<TunnelSecurity<"relay">> {
