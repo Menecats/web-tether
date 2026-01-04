@@ -12,7 +12,7 @@ export async function handleGenerateIdentity({
   const { ["identity-name"]: inputIdentityName } = parseArgs(commandArgs, {
     string: ["identity-name"],
     alias: {
-      "identity-name": ["i"],
+      "identity-name": ["i", "identity"],
     },
   });
 

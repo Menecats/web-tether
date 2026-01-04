@@ -1,10 +1,10 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { parse } from "@std/yaml";
-import { isIPv4 } from "node:net";
 import { z } from "zod";
 import { asyncAction } from "../../common/async.ts";
 import { safeStat } from "../../common/fs.ts";
 import { prefixLogger } from "../../common/log.ts";
+import { isValidIP, isValidPort } from "../../common/net.ts";
 import { areBuffersEqual } from "../../common/safe-buffer.ts";
 import {
   hashPublicKey,
@@ -218,6 +218,7 @@ export async function handleTunnelRelay({
   commandArgs,
   commandLog,
 }: CliCommandOptions) {
+  commandLog.trace("parsing command args");
   const { identity, clients, host, port } = parseArgs(commandArgs, {
     string: ["identity", "clients", "port", "host"],
     default: {
@@ -230,19 +231,14 @@ export async function handleTunnelRelay({
     },
   });
 
-  if (!isIPv4(host)) {
+  if (!isValidIP(host.trim())) {
     commandLog.error(`specified host must be an ipv4 address`);
     return;
   }
 
-  if (!/^\s*-?\d+\s*$/.test(port)) {
-    commandLog.error(`specified port must be a number`);
-    return;
-  }
-
-  const parsedPort = parseInt(port.trim());
-  if (parsedPort < 1 || parsedPort > 65535) {
-    commandLog.error(`specified port must be between 1 and 65535`);
+  const parsedPort = isValidPort(port);
+  if (!parsedPort) {
+    commandLog.error(`specified port must be a number between 1 and 65535`);
     return;
   }
 
@@ -304,7 +300,7 @@ export async function handleTunnelRelay({
 
   let relayPermissions: TunnelRelayPermissionsSchema | undefined;
   async function readPermissions(): Promise<boolean> {
-    const log = prefixLogger(commandLog, "[config:read]");
+    const log = prefixLogger(commandLog, "[clients:read]");
 
     log.trace("checking clients file existance");
     const stat = await safeStat(clients!);
@@ -359,7 +355,7 @@ export async function handleTunnelRelay({
 
   const controller = new AbortController();
   asyncAction(async () => {
-    const log = prefixLogger(commandLog, "[config:watch]");
+    const log = prefixLogger(commandLog, "[clients:watch]");
     log.info("starting clients file watcher");
 
     const watcher = Deno.watchFs(clients);
@@ -375,11 +371,10 @@ export async function handleTunnelRelay({
     commandLog.info("[signal]", "Interrupted");
     controller.abort(new TunnelServerError({ reason: "application-aborted" }));
   };
-
   Deno.addSignalListener("SIGINT", interruptListener);
   try {
     await createTunnelRelayServer({
-      listen: { hostname: host, port: parsedPort },
+      listen: { hostname: host.trim(), port: parsedPort },
       performance: { decryptQueueSize: 1024 },
       auth: {
         credentials: {

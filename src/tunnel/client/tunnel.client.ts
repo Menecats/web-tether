@@ -48,12 +48,22 @@ export async function createTunnelRelayClient(
 
   options.log.trace("starting loop done");
   try {
+    let lastAbortReason: unknown | undefined = undefined;
     while (!options.signal.aborted) {
       if (failed) {
         const waitDelay = options.performance.reconnectDelay({
           attempts: failed,
           valid: connectedOnce,
+          reason: lastAbortReason,
         });
+        lastAbortReason = undefined;
+
+        if (waitDelay === false) {
+          options.log.info(
+            `connection won't retry after #${failed} failed attempt(s)`,
+          );
+          break;
+        }
 
         options.log.info(
           `delay connection after #${failed} failed attempt(s), waiting ${waitDelay}ms`,
@@ -101,6 +111,8 @@ export async function createTunnelRelayClient(
         log.trace("done handling socket");
         socketAbort.abort(new TunnelClientError({ reason: "socket-closed" }));
       }
+
+      lastAbortReason = socketAbort.signal.reason;
     }
   } catch (err) {
     options.log.error("error while handling connection loop", err);
