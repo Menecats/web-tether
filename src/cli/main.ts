@@ -40,7 +40,7 @@ function configureLogger(
 
 function printHelp() {
   // TODO: Add help text
-  console.error(`asdf`);
+  console.error(`Help Text HERE`);
 }
 
 const command = Deno.args[0];
@@ -61,18 +61,22 @@ commandLog.trace(`handling command '${command}'`);
 switch (command) {
   case "generate-credentials":
     await handleGenerateCredentials({ command, commandArgs, commandLog });
+    Deno.exit(0);
     break;
 
   case "generate-identity":
     await handleGenerateIdentity({ command, commandArgs, commandLog });
+    Deno.exit(0);
     break;
 
   case "relay":
     await handleTunnelRelay({ command, commandArgs, commandLog });
+    Deno.exit(0);
     break;
 
   case "connect":
     await handleTunnelConnect({ command, commandArgs, commandLog });
+    Deno.exit(0);
     break;
 
   default:

@@ -25,7 +25,7 @@ export function pemToBuffer(
   if (!result) return null;
 
   const format = result[1] === "PUBLIC" ? "spki" : "pkcs8";
-  const buffer = Uint8Array.fromBase64(result[2].replaceAll(/\s+/, ""));
+  const buffer = Uint8Array.fromBase64(result[2].replaceAll(/\s+/g, ""));
 
   return { format, buffer };
 }

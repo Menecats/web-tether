@@ -19,14 +19,21 @@ export type CreateTunnelRelayOptions = {
         enabled: true;
         lookup: (
           identifier: string,
-        ) => Promise<
+        ) =>
+          | Promise<
+            | {
+              salt: Uint8Array<ArrayBuffer>;
+              hash: Uint8Array<ArrayBuffer>;
+              permissions: TunnelSecurityPermissions;
+            }
+            | undefined
+          >
           | {
             salt: Uint8Array<ArrayBuffer>;
             hash: Uint8Array<ArrayBuffer>;
             permissions: TunnelSecurityPermissions;
           }
-          | undefined
-        >;
+          | undefined;
       };
 
     identity:
@@ -34,12 +41,19 @@ export type CreateTunnelRelayOptions = {
       | {
         enabled: true;
         serverKeys: CryptoKeyPair;
-        lookupClient: (hash: Uint8Array<ArrayBuffer>) => Promise<
-          {
+        lookupClient: (hash: Uint8Array<ArrayBuffer>) =>
+          | Promise<
+            | {
+              key: CryptoKey;
+              permissions: TunnelSecurityPermissions;
+            }
+            | undefined
+          >
+          | {
             key: CryptoKey;
             permissions: TunnelSecurityPermissions;
-          } | undefined
-        >;
+          }
+          | undefined;
       };
   };
 
@@ -171,4 +185,5 @@ export async function createTunnelRelayServer(
 
   options.log.info(`wait for all remaining sockets to complete.`);
   await Promise.all([...allSockets]);
+  options.log.info(`done.`);
 }

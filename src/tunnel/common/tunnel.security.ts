@@ -2,11 +2,17 @@ export type TunnelSecurityRole = "relay" | "client";
 export type TunnelSecurityPermissions = {
   bind:
     | { enabled: false }
-    | { enabled: true; allowed: (service: string) => Promise<boolean> };
+    | {
+      enabled: true;
+      allowed: (service: string) => boolean | Promise<boolean>;
+    };
 
   connect:
     | { enabled: false }
-    | { enabled: true; allowed: (service: string) => Promise<boolean> };
+    | {
+      enabled: true;
+      allowed: (service: string) => boolean | Promise<boolean>;
+    };
 };
 export type TunnelSecurity<Role extends TunnelSecurityRole> = {
   readonly role: Role;
