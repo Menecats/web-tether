@@ -1,10 +1,10 @@
-import { colorizeOutput, createLogger } from "./common/log.ts";
-import { areBuffersEqual } from "./common/safe-buffer.ts";
-import { pbkdf2Hash512 } from "./common/security.ts";
-import { client, clientHash, server } from "./common/test-keys.ts";
-import { TunnelServerError } from "./tunnel/common/tunnel.errors.ts";
-import { TunnelSecurityPermissions } from "./tunnel/common/tunnel.security.ts";
-import { createTunnelRelayServer } from "./tunnel/server/tunnel.server.ts";
+import { colorizeOutput, createLogger } from "../common/log.ts";
+import { areBuffersEqual } from "../common/safe-buffer.ts";
+import { pbkdf2Hash512 } from "../common/security.ts";
+import { client, clientHash, server } from "../common/test-keys.ts";
+import { TunnelServerError } from "../tunnel/common/tunnel.errors.ts";
+import { TunnelSecurityPermissions } from "../tunnel/common/tunnel.security.ts";
+import { createTunnelRelayServer } from "../tunnel/server/tunnel.server.ts";
 
 const controller = new AbortController();
 
