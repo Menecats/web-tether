@@ -136,7 +136,7 @@ export class SocketConnectType
 
 await new Command()
   .name("web-tether")
-  .version("0.1.0")
+  .version("1.0.0-pre.0")
   .description(
     "Create and connect to WebSocket relays to expose or access TCP services securely.",
   )
