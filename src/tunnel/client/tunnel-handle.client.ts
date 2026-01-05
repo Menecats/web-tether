@@ -21,7 +21,7 @@ import { handle_SERVICE_LINK } from "./commands/handle-SERVICE_LINK.ts";
 import { handle_SERVICE_STREAM } from "./commands/handle-SERVICE_STREAM.ts";
 import { handle_SOCKET_CLOSED } from "./commands/handle-SOCKET_CLOSED.ts";
 import { handle_UNSUPPORTED } from "./commands/handle-UNSUPPORTED.ts";
-import { handleTunnelClientService as handleTunnelClientServices } from "./services/client-service-handler.ts";
+import { handleTunnelClientServices } from "./services/client-service-handler.ts";
 import { TunnelClientRawSocketSericeServer } from "./services/raw-socket-server.service.ts";
 import { TunnelClientSocksProxyServiceServer } from "./services/socks-proxy-server.service.ts";
 import {

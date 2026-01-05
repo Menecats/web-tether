@@ -18,7 +18,7 @@ import { handleClientStream } from "./handle-stream.ts";
 import { TunnelClientRawSocketSericeServer } from "./raw-socket-server.service.ts";
 import { TunnelClientSocksProxyServiceServer } from "./socks-proxy-server.service.ts";
 
-export async function handleTunnelClientService({
+export async function handleTunnelClientServices({
   services,
   generateUID,
 

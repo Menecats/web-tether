@@ -1,7 +1,7 @@
 import { ArgumentValue, Command, EnumType, Type } from "@cliffy/command";
 import { InvalidTypeError } from "@cliffy/flags";
 import { promptSecret } from "@std/cli/prompt-secret";
-import * as path from "@std/path";
+import { normalize } from "@std/path";
 import { parse } from "@std/yaml/parse";
 import { asyncAction } from "../common/async.ts";
 import { safeStat } from "../common/fs.ts";
@@ -866,7 +866,7 @@ await new Command()
     const pair = await exportECDHKeyPair();
 
     log.trace("normalizing identity file path");
-    const privateIdentityFile = path.normalize(options.identityFile);
+    const privateIdentityFile = normalize(options.identityFile);
     const publicIdentityFile = privateIdentityFile + ".pub";
 
     log.trace(`  private: '${privateIdentityFile}'`);
