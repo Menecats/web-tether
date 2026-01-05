@@ -84,7 +84,25 @@ export class SocketBindType
   public parse(
     type: ArgumentValue,
   ): TunnelRelayClientOptions["services"]["bind"][number] {
-    throw "TODO"; // TODO
+    const chunks = type.value.split("@");
+    if (chunks.length !== 2) throw new InvalidTypeError(type);
+
+    const service = chunks[0].trim();
+    const rawDestination = chunks[1].trim();
+
+    if (!service || !rawDestination) throw new InvalidTypeError(type);
+
+    const colonIndex = rawDestination.lastIndexOf(":");
+    if (colonIndex < 0) throw new InvalidTypeError(type);
+    const hostname = rawDestination.substring(0, colonIndex).trim();
+    const port = isValidPort(rawDestination.substring(colonIndex + 1));
+
+    if (!hostname || !port) throw new InvalidTypeError(type);
+
+    return {
+      service,
+      destination: { hostname, port },
+    };
   }
 }
 
@@ -93,7 +111,26 @@ export class SocketConnectType
   public parse(
     type: ArgumentValue,
   ): TunnelRelayClientOptions["services"]["connect"][number] {
-    throw "TODO"; // TODO
+    const chunks = type.value.split("@");
+    if (chunks.length !== 2) throw new InvalidTypeError(type);
+
+    const rawSource = chunks[0].trim();
+    const service = chunks[1].trim();
+
+    if (!service || !rawSource) throw new InvalidTypeError(type);
+
+    const colonIndex = rawSource.lastIndexOf(":");
+    const hostname = colonIndex < 0
+      ? "127.0.0.1"
+      : rawSource.substring(0, colonIndex).trim();
+    const port = isValidPort(rawSource.substring(colonIndex + 1));
+
+    if (!isValidIP(hostname) || !port) throw new InvalidTypeError(type);
+
+    return {
+      service,
+      source: { hostname, port },
+    };
   }
 }
 
