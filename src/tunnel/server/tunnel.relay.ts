@@ -408,7 +408,7 @@ export async function handleSocketRelay(
               continue;
             }
 
-            if (relay.service(serviceName)) {
+            if (relay.service(serviceName) != null) {
               someUnavailable = true;
               continue;
             }
@@ -456,7 +456,7 @@ export async function handleSocketRelay(
             else break;
           }
 
-          options.log.trace(`received bind request, bound`);
+          options.log.trace(`received bind request, services bound`, services);
           writer.write(
             new Uint8Array([RelayCommand.SERVICE_BIND, RelayBindReply.SUCCESS]),
           );
@@ -537,9 +537,9 @@ export async function handleSocketRelay(
           }
 
           const found = relay.service(serviceName);
-          if (!found) {
+          if (found == null) {
             options.log.trace(
-              `received connect request, but service is not found`,
+              `received connect request, but service is not found '${serviceName}'`,
             );
             writer.write(
               new Uint8Array([
