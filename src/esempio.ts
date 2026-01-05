@@ -35,7 +35,7 @@ const azioni: Azione[] = [
   },
   {
     dire: () =>
-      `CIAO ${memoria["nome"]}, io ho ${memoria["anni"] as number + 1} anni`,
+      `CIAO ${memoria["nome"]}, io ho ${(memoria["anni"] as number) + 1} anni`,
   },
 ];
 

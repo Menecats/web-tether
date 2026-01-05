@@ -10,8 +10,7 @@ export function asyncAction(
 ): AsyncAction {
   const wrapped = deriveSignal(signal);
 
-  const done = Promise
-    .resolve()
+  const done = Promise.resolve()
     .then(() => action(wrapped.signal))
     .finally(() => {
       if (!wrapped.signal.aborted) {

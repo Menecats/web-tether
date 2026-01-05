@@ -20,10 +20,7 @@ export type Socks5Options =
       | {
         enabled: true;
         required: boolean;
-        validate: (
-          username: string,
-          password: string,
-        ) => Promise<boolean>;
+        validate: (username: string, password: string) => Promise<boolean>;
       };
   };
 
@@ -91,10 +88,7 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
       // Once done deregister active connection
       connectionDone
         .catch((error) => {
-          connectionLog.error(
-            `Error while handling connection.`,
-            error,
-          );
+          connectionLog.error(`Error while handling connection.`, error);
         })
         .finally(() => {
           connectionLog.trace(`Purging connection.`);
@@ -120,18 +114,14 @@ export async function handleSocksConnection(
 
   const hashshakeReader = connection.readable.getReader();
   const handshakeWriter = connection.writable.getWriter();
-  const protocolManager = handleProtocol(
-    options,
-    handshakeWriter,
-  );
+  const protocolManager = handleProtocol(options, handshakeWriter);
 
   let tunnel: ConnectionTunnel | undefined;
 
   try {
-    handshake:
-    while (true) {
+    handshake: while (true) {
       while (
-        ("size" in bufferRequest)
+        "size" in bufferRequest
           ? bufferRequest.size <= workingBuffer.length
           : workingBuffer.indexOf(bufferRequest.until) >= 0
       ) {
@@ -190,10 +180,7 @@ export async function handleSocksConnection(
         return;
       }
 
-      workingBuffer = concatBuffers(
-        workingBuffer,
-        readBuffer.value,
-      );
+      workingBuffer = concatBuffers(workingBuffer, readBuffer.value);
     }
 
     hashshakeReader.releaseLock();
@@ -225,10 +212,7 @@ export async function handleSocksConnection(
           tunnel.readable.pipeTo(connection.writable),
         ]).catch((err) => {
           if (!(err instanceof Deno.errors.Interrupted)) {
-            options.log.error(
-              `Error while piping data, closing.`,
-              err,
-            );
+            options.log.error(`Error while piping data, closing.`, err);
           }
         });
       } finally {

@@ -17,9 +17,7 @@ export function concatBuffers(
   return result;
 }
 
-export function safelyClose(
-  closeable: { close(): void } | undefined | null,
-) {
+export function safelyClose(closeable: { close(): void } | undefined | null) {
   try {
     closeable?.close();
   } catch {
@@ -35,7 +33,9 @@ export function cancellableAbort(
     try {
       action(signal.reason);
       return { cancel: () => undefined };
-    } catch { /* Ignore errors */ }
+    } catch {
+      /* Ignore errors */
+    }
   }
 
   const wrappedAction = () => action(signal.reason);
@@ -45,10 +45,7 @@ export function cancellableAbort(
   };
 }
 
-export function printEnum<
-  T extends number,
-  E extends Record<number, string>,
->(
+export function printEnum<T extends number, E extends Record<number, string>>(
   e: E,
   k: T,
 ) {
@@ -72,13 +69,11 @@ export type ConsumableAsyncQueue<Input, Output = Input> = Disposable & {
   ) => Promise<void>;
 
   push(item: Input, options?: ConsumableAsyncQueuePushOptions): void;
-  shift(
-    options?: {
-      signal?: AbortSignal;
-      timeout?: number;
-      timeoutError?: () => unknown;
-    },
-  ): Promise<Output>;
+  shift(options?: {
+    signal?: AbortSignal;
+    timeout?: number;
+    timeoutError?: () => unknown;
+  }): Promise<Output>;
 };
 
 export function consumableAsyncQueue<Item>(options: {
@@ -89,12 +84,10 @@ export function consumableAsyncQueue<Input, Output>(options: {
   signal: AbortSignal;
   map: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
 }): ConsumableAsyncQueue<Input, Output>;
-export function consumableAsyncQueue<Input, Output>(
-  options: {
-    signal: AbortSignal;
-    map?: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
-  },
-): ConsumableAsyncQueue<Input, Output> {
+export function consumableAsyncQueue<Input, Output>(options: {
+  signal: AbortSignal;
+  map?: (value: Input, signal: AbortSignal) => Output | Promise<Output>;
+}): ConsumableAsyncQueue<Input, Output> {
   const map = options.map ?? ((item: Input) => item as unknown as Output);
 
   type Value =
@@ -197,52 +190,51 @@ export function consumableAsyncQueue<Input, Output>(
       enqueueListeners.forEach((l) => l.resolve());
       enqueueListeners.length = 0;
 
-      const process = Promise
-        .resolve()
-        .then(async () => await map(item, abortController.signal));
+      const process = Promise.resolve().then(
+        async () => await map(item, abortController.signal),
+      );
 
-      operation = operation
-        .then(async () => {
-          let value: Value;
+      operation = operation.then(async () => {
+        let value: Value;
+        try {
+          value = {
+            input: item,
+            options: options || {},
+
+            success: true,
+            content: await process,
+          };
+        } catch (err) {
+          value = {
+            input: item,
+            options: options || {},
+
+            success: false,
+            reason: err,
+          };
+        }
+
+        if (abortController.signal.aborted) return;
+
+        if (waiting.length) {
+          dequeueListeners.forEach((l) => l.resolve());
+          dequeueListeners.length = 0;
+          queued--;
+
+          const next = waiting.shift()!;
+
           try {
-            value = {
-              input: item,
-              options: options || {},
-
-              success: true,
-              content: await process,
-            };
-          } catch (err) {
-            value = {
-              input: item,
-              options: options || {},
-
-              success: false,
-              reason: err,
-            };
+            value.options.onDequeue?.();
+          } catch {
+            // Ignore error
           }
 
-          if (abortController.signal.aborted) return;
-
-          if (waiting.length) {
-            dequeueListeners.forEach((l) => l.resolve());
-            dequeueListeners.length = 0;
-            queued--;
-
-            const next = waiting.shift()!;
-
-            try {
-              value.options.onDequeue?.();
-            } catch {
-              // Ignore error
-            }
-
-            if (value.success) next.resolve(value.content);
-            else next.reject(value.reason);
-          } else {
-            pending.push(value);
-          }
-        });
+          if (value.success) next.resolve(value.content);
+          else next.reject(value.reason);
+        } else {
+          pending.push(value);
+        }
+      });
     },
     shift: ({ signal, timeout = -1, timeoutError } = {}) => {
       if (signal?.aborted) {

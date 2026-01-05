@@ -4,12 +4,8 @@ import { deriveSignal } from "../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
 import { TunnelClientError } from "../common/tunnel.errors.ts";
 import { validateTunnelClientConfiguration } from "./config/validate.ts";
-import {
-  createTunnelClientRawSocketSericeServer,
-} from "./services/raw-socket-server.service.ts";
-import {
-  createTunnelClientSocksProxyServiceServer,
-} from "./services/socks-proxy-server.service.ts";
+import { createTunnelClientRawSocketSericeServer } from "./services/raw-socket-server.service.ts";
+import { createTunnelClientSocksProxyServiceServer } from "./services/socks-proxy-server.service.ts";
 import { handleClientSocket } from "./tunnel-handle.client.ts";
 
 export async function createTunnelRelayClient(
@@ -22,26 +18,27 @@ export async function createTunnelRelayClient(
     options.log.debug("create [socks-proxy] listeners");
   }
   const socksProxyListeners = options.services.proxyClient.enabled
-    ? [createTunnelClientSocksProxyServiceServer({
-      proxy: options.services.proxyClient,
-      handleTimeout: options.performance.connectionHandleTimeout,
-      log: prefixLogger(options.log, `[socks-proxy]`),
-      signal: options.signal,
-    })]
+    ? [
+      createTunnelClientSocksProxyServiceServer({
+        proxy: options.services.proxyClient,
+        handleTimeout: options.performance.connectionHandleTimeout,
+        log: prefixLogger(options.log, `[socks-proxy]`),
+        signal: options.signal,
+      }),
+    ]
     : [];
 
   if (options.services.connect.length) {
     options.log.debug("create [raw-socket listeners");
   }
-  const rawSocketListeners = options.services.connect
-    .map((connection) =>
-      createTunnelClientRawSocketSericeServer({
-        connection,
-        handleTimeout: options.performance.connectionHandleTimeout,
-        log: prefixLogger(options.log, `[raw-socket:${connection.service}]`),
-        signal: options.signal,
-      })
-    );
+  const rawSocketListeners = options.services.connect.map((connection) =>
+    createTunnelClientRawSocketSericeServer({
+      connection,
+      handleTimeout: options.performance.connectionHandleTimeout,
+      log: prefixLogger(options.log, `[raw-socket:${connection.service}]`),
+      signal: options.signal,
+    })
+  );
 
   let connectedOnce = false;
   let failed = 0;

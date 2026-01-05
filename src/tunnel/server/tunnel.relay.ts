@@ -27,7 +27,7 @@ export enum RelayBindReply {
   SOCKET_ALREADY_BOUND = 0x30,
   SERVICE_ALREADY_BOUND = 0x31,
   SERVICE_INVALID_TYPE = 0x32,
-  UNAUTHORIZED = 0xFE,
+  UNAUTHORIZED = 0xfe,
 }
 export enum RelayConnectReply {
   SUCCESS = 0x00,
@@ -42,7 +42,7 @@ export enum RelayConnectReply {
   SERVICE_INVALID_TYPE = 0x32,
   SERVICE_NOT_FOUND = 0x33,
   SERVICE_INVALID_IDENTIFIER = 0x34,
-  SERVICE_UNAUTHORIZED = 0xFE,
+  SERVICE_UNAUTHORIZED = 0xfe,
 }
 export enum RelayLinkReply {
   SUCCESS = 0x00,
@@ -67,7 +67,7 @@ export enum RelayCommand {
   SERVICE_LINK = 0x13,
   SERVICE_CLOSED = 0x14,
 
-  UNSUPPORTED = 0xFF,
+  UNSUPPORTED = 0xff,
 }
 
 export enum RelayServiceType {
@@ -86,8 +86,8 @@ export enum RelayServiceConnectionReason {
   TRANSPORT_SOCKET_CLOSED = 0x03,
   TRANSPORT_FORWARD_FAILED = 0x04,
   TRANSPORT_SOCKET_START_FAILED = 0x05,
-  CONNECTION_GONE = 0xFE,
-  UNKNOWN = 0xFF,
+  CONNECTION_GONE = 0xfe,
+  UNKNOWN = 0xff,
 }
 export type RelayServiceConnection = {
   readonly server: {
@@ -121,10 +121,7 @@ export type Relay = {
     metadata: Uint8Array<ArrayBuffer>,
   ) => void;
 
-  connected: (
-    socket: WebSocket,
-    write: TunnelWriter,
-  ) => void;
+  connected: (socket: WebSocket, write: TunnelWriter) => void;
   disconnected: (socket: WebSocket) => void;
 };
 
@@ -162,10 +159,7 @@ async function authenticateRelay(
       );
     } else {
       socket.send(
-        new Uint8Array([
-          RelayVersion7,
-          RelayAuthentication.UNSUPPORTED_AUTH,
-        ]),
+        new Uint8Array([RelayVersion7, RelayAuthentication.UNSUPPORTED_AUTH]),
       );
       return undefined;
     }
@@ -182,20 +176,14 @@ async function authenticateRelay(
       );
     } else {
       socket.send(
-        new Uint8Array([
-          RelayVersion7,
-          RelayAuthentication.UNSUPPORTED_AUTH,
-        ]),
+        new Uint8Array([RelayVersion7, RelayAuthentication.UNSUPPORTED_AUTH]),
       );
       return undefined;
     }
   }
 
   socket.send(
-    new Uint8Array([
-      RelayVersion7,
-      RelayAuthentication.UNSUPPORTED_AUTH,
-    ]),
+    new Uint8Array([RelayVersion7, RelayAuthentication.UNSUPPORTED_AUTH]),
   );
   return undefined;
 }
@@ -281,7 +269,7 @@ export async function handleSocketRelay(
       ready.reject(
         new TunnelServerError({
           reason: "socket-error",
-          error: ("error" in event) ? event.error : event,
+          error: "error" in event ? event.error : event,
         }),
       );
     };
@@ -300,7 +288,7 @@ export async function handleSocketRelay(
       queue.abortWith(
         new TunnelServerError({
           reason: "socket-error",
-          error: ("error" in event) ? event.error : event,
+          error: "error" in event ? event.error : event,
         }),
       );
     };
@@ -627,7 +615,10 @@ export async function handleSocketRelay(
           const unsupportedCommand = buffer.uint8();
           options.log.error(
             `client notified unsupported command: ${
-              printEnum(RelayCommand, unsupportedCommand)
+              printEnum(
+                RelayCommand,
+                unsupportedCommand,
+              )
             }`,
           );
           break;
@@ -637,9 +628,7 @@ export async function handleSocketRelay(
           options.log.warn(
             `received unsupported command: ${printEnum(RelayCommand, command)}`,
           );
-          writer.write(
-            new Uint8Array([RelayCommand.UNSUPPORTED, command]),
-          );
+          writer.write(new Uint8Array([RelayCommand.UNSUPPORTED, command]));
           if (isBlockingFailure("unsupported-command")) return;
           else break;
         }
@@ -690,8 +679,7 @@ export function createRelay(log: Logger): Relay {
       //       Otherwise clone the list of activeConnections first
       registeredSockets
         .get(socket)
-        ?.connections
-        .values()
+        ?.connections.values()
         .forEach((c) =>
           c.close(socket, RelayServiceConnectionReason.TRANSPORT_SOCKET_CLOSED)
         );

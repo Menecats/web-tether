@@ -27,17 +27,15 @@ export type TunnelClientSocksProxyServiceServer = {
   done: Promise<void>;
 };
 
-export function createTunnelClientSocksProxyServiceServer(
-  options: {
-    proxy: TunnelRelayClientOptions["services"]["proxyClient"] & {
-      enabled: true;
-    };
-    handleTimeout: number;
+export function createTunnelClientSocksProxyServiceServer(options: {
+  proxy: TunnelRelayClientOptions["services"]["proxyClient"] & {
+    enabled: true;
+  };
+  handleTimeout: number;
 
-    log: Logger;
-    signal: AbortSignal;
-  },
-): TunnelClientSocksProxyServiceServer {
+  log: Logger;
+  signal: AbortSignal;
+}): TunnelClientSocksProxyServiceServer {
   const handle = consumableAsyncQueue<TunnelClientHandledSocksProxyClient>({
     signal: options.signal,
   });

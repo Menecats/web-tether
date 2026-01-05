@@ -23,15 +23,13 @@ export type TunnelClientRawSocketSericeServer = {
   done: Promise<void>;
 };
 
-export function createTunnelClientRawSocketSericeServer(
-  options: {
-    connection: TunnelRelayClientOptions["services"]["connect"][number];
-    handleTimeout: number;
+export function createTunnelClientRawSocketSericeServer(options: {
+  connection: TunnelRelayClientOptions["services"]["connect"][number];
+  handleTimeout: number;
 
-    log: Logger;
-    signal: AbortSignal;
-  },
-): TunnelClientRawSocketSericeServer {
+  log: Logger;
+  signal: AbortSignal;
+}): TunnelClientRawSocketSericeServer {
   const handle = consumableAsyncQueue<TunnelClientHandledRawSocketClient>({
     signal: options.signal,
   });
@@ -95,11 +93,10 @@ export function createTunnelClientRawSocketSericeServer(
           if (result.ok) {
             connectionLog.debug(`relay connection established, piping traffic`);
 
-            Promise
-              .all([
-                result.tunnel.readable.pipeTo(connection.writable),
-                connection.readable.pipeTo(result.tunnel.writable),
-              ])
+            Promise.all([
+              result.tunnel.readable.pipeTo(connection.writable),
+              connection.readable.pipeTo(result.tunnel.writable),
+            ])
               .catch((err) => {
                 if (err instanceof Deno.errors.Interrupted) return;
 

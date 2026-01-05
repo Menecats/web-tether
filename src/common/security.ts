@@ -11,7 +11,10 @@ export function bufferToPem(
   format: "spki" | "pkcs8",
 ): string {
   const keyType = format === "spki" ? "PUBLIC" : "PRIVATE";
-  const pemBlocks = buffer.toBase64().match(/.{1,64}/g)?.join("\n") || "";
+  const pemBlocks = buffer
+    .toBase64()
+    .match(/.{1,64}/g)
+    ?.join("\n") || "";
 
   return `-----BEGIN ${keyType} KEY-----\n${pemBlocks}\n-----END ${keyType} KEY-----`;
 }
@@ -21,7 +24,9 @@ export function pemToBuffer(
 ): { buffer: Uint8Array<ArrayBuffer>; format: "spki" | "pkcs8" } | null {
   const result =
     /-----BEGIN (PUBLIC|PRIVATE) KEY-----([\s\S]*)-----END (PUBLIC|PRIVATE) KEY-----/
-      .exec(pem);
+      .exec(
+        pem,
+      );
   if (!result) return null;
 
   const format = result[1] === "PUBLIC" ? "spki" : "pkcs8";

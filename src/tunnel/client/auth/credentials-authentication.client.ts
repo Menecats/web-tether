@@ -19,9 +19,14 @@ export type HandleClientCredentialsAuthenticationOptions = {
   auth: TunnelRelayClientOptions["auth"] & { mode: "credentials" };
   log: Logger;
 };
-export async function handleClientCredentialsAuthentication(
-  { socket, queue, auth, log }: HandleClientCredentialsAuthenticationOptions,
-): Promise<TunnelSecurity<"client">> {
+export async function handleClientCredentialsAuthentication({
+  socket,
+  queue,
+  auth,
+  log,
+}: HandleClientCredentialsAuthenticationOptions): Promise<
+  TunnelSecurity<"client">
+> {
   log.debug(`initializing`);
 
   const encoder = new TextEncoder();
@@ -77,10 +82,7 @@ export async function handleClientCredentialsAuthentication(
 
   log.trace(`deriving shared hash`);
   const hash = new Uint8Array(
-    await pbkdf2Hash512(
-      encoder.encode(auth.passkey),
-      salt,
-    ),
+    await pbkdf2Hash512(encoder.encode(auth.passkey), salt),
   );
 
   log.trace(`deriving decryption key`);
@@ -121,11 +123,7 @@ export async function handleClientCredentialsAuthentication(
   log.trace(`solving challenge`);
   socket.send(
     await security.encrypt(
-      new Uint8Array([
-        RelayVersion7,
-        RelayAuthentication.BASIC_AUTH,
-        ...hash,
-      ]),
+      new Uint8Array([RelayVersion7, RelayAuthentication.BASIC_AUTH, ...hash]),
     ),
   );
 

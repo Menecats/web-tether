@@ -20,7 +20,7 @@ enum Socks5Methods {
   USERNAME_PASSWORD = 0x02,
   // IANA_ASSIGNED = 0x03 -> 0x7F,
   // RESERVED_FOR_PRIVATE_METHODS = 0x80 -> 0xFE,
-  NO_ACCEPTABLE_METHODS = 0xFF,
+  NO_ACCEPTABLE_METHODS = 0xff,
 }
 enum Socks5Command {
   CONNECT = 0x01,
@@ -76,14 +76,14 @@ export async function* handleSocks5(
 ): SocksHandler {
   log.trace(`stage 'handshake'.`);
 
-  const { buffer: [version, methodsCount] } = yield {
+  const {
+    buffer: [version, methodsCount],
+  } = yield {
     timeout: SOCKS_HANDSHAKE_TIMEOUT,
     size: 2,
   };
 
-  log.trace(
-    `got version (${version}) and methods count (${methodsCount}).`,
-  );
+  log.trace(`got version (${version}) and methods count (${methodsCount}).`);
 
   if (version !== Socks5Version) {
     log.trace(`invalid version.`);
@@ -111,9 +111,7 @@ export async function* handleSocks5(
   let chosenAuthenticationMethod = Socks5Methods.NO_ACCEPTABLE_METHODS;
   if (
     socks5.auth.enabled &&
-    availableAuthenticationMethods.includes(
-      Socks5Methods.USERNAME_PASSWORD,
-    )
+    availableAuthenticationMethods.includes(Socks5Methods.USERNAME_PASSWORD)
   ) {
     chosenAuthenticationMethod = Socks5Methods.USERNAME_PASSWORD;
   } else if (
@@ -127,7 +125,10 @@ export async function* handleSocks5(
 
   log.trace(
     `authentication method chosen: ${
-      printEnum(Socks5Methods, chosenAuthenticationMethod)
+      printEnum(
+        Socks5Methods,
+        chosenAuthenticationMethod,
+      )
     }.`,
   );
 
@@ -136,9 +137,7 @@ export async function* handleSocks5(
   );
 
   if (chosenAuthenticationMethod === Socks5Methods.NO_ACCEPTABLE_METHODS) {
-    log.debug(
-      `no available authentication methods found.`,
-    );
+    log.debug(`no available authentication methods found.`);
     return;
   }
 
@@ -148,7 +147,9 @@ export async function* handleSocks5(
   if (chosenAuthenticationMethod === Socks5Methods.USERNAME_PASSWORD) {
     log.trace(`stage 'auth'.`);
 
-    const { buffer: [authenticationVersion, usernameLength] } = yield {
+    const {
+      buffer: [authenticationVersion, usernameLength],
+    } = yield {
       timeout: SOCKS_AUTH_INIT_TIMEOUT,
       size: 2,
     };
@@ -156,9 +157,7 @@ export async function* handleSocks5(
       `got authentication version (${authenticationVersion}) and username length.`,
     );
     if (authenticationVersion !== Socks5AuthVersion) {
-      log.debug(
-        `unsupported authentication version, closing.`,
-      );
+      log.debug(`unsupported authentication version, closing.`);
       return;
     }
 
@@ -166,8 +165,8 @@ export async function* handleSocks5(
       (yield { timeout: SOCKS_AUTH_TIMEOUT, size: usernameLength }).buffer,
     );
     log.trace(`got username.`);
-    const passwordLength =
-      (yield { timeout: SOCKS_AUTH_TIMEOUT, size: 1 }).buffer[0];
+    const passwordLength = (yield { timeout: SOCKS_AUTH_TIMEOUT, size: 1 })
+      .buffer[0];
     log.trace(`got password length.`);
     const password = decoder.decode(
       (yield { timeout: SOCKS_AUTH_TIMEOUT, size: passwordLength }).buffer,
@@ -175,14 +174,17 @@ export async function* handleSocks5(
     log.trace(`got password.`);
 
     log.trace(`validating credentials.`);
-    const authenticationResult = (socks5.auth.enabled &&
-        await socks5.auth.validate(username, password))
-      ? Socks5AuthResult.SUCCESS
-      : Socks5AuthResult.FAILURE;
+    const authenticationResult =
+      socks5.auth.enabled && (await socks5.auth.validate(username, password))
+        ? Socks5AuthResult.SUCCESS
+        : Socks5AuthResult.FAILURE;
 
     log.trace(
       `authentication result: ${
-        printEnum(Socks5AuthResult, authenticationResult)
+        printEnum(
+          Socks5AuthResult,
+          authenticationResult,
+        )
       }.`,
     );
 
@@ -190,23 +192,26 @@ export async function* handleSocks5(
       new Uint8Array([Socks5AuthVersion, authenticationResult]),
     );
     if (authenticationResult !== Socks5AuthResult.SUCCESS) {
-      log.debug(
-        `authentication failed, closing.`,
-      );
+      log.debug(`authentication failed, closing.`);
       return;
     }
   }
 
   log.trace(`stage 'request'.`);
 
-  const { buffer: [requestVersion, command, , addressType] } = yield {
+  const {
+    buffer: [requestVersion, command, , addressType],
+  } = yield {
     timeout: SOCKS_REQUEST_INIT_TIMEOUT,
     size: 4,
   };
 
   log.trace(
     `got version (${requestVersion}), command (${
-      printEnum(Socks5Command, command)
+      printEnum(
+        Socks5Command,
+        command,
+      )
     }) and address type (${printEnum(Socks5AddressType, addressType)}).`,
   );
 
@@ -231,8 +236,10 @@ export async function* handleSocks5(
     const host = Array.from(
       (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 4 }).buffer,
     ).join(".");
-    const port = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 2 }).view
-      .getUint16(0);
+    const port = (yield {
+      timeout: SOCKS_REQUEST_TIMEOUT,
+      size: 2,
+    }).view.getUint16(0);
 
     destination = { mode: "ipv4", host, port };
   } else if (addressType === Socks5AddressType.IP_V6) {
@@ -248,50 +255,48 @@ export async function* handleSocks5(
     }
 
     const host = parts.join(":");
-    const port = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 2 }).view
-      .getUint16(0);
+    const port = (yield {
+      timeout: SOCKS_REQUEST_TIMEOUT,
+      size: 2,
+    }).view.getUint16(0);
 
     destination = { mode: "ipv6", host, port };
   } else if (addressType === Socks5AddressType.DOMAINNAME) {
     log.trace(`parsing domain name.`);
 
-    const hostLength =
-      (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 1 }).buffer[0];
+    const hostLength = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 1 })
+      .buffer[0];
     log.trace(`got domain name length (${hostLength}).`);
     const host = decoder.decode(
       (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: hostLength }).buffer,
     );
-    const port = (yield { timeout: SOCKS_REQUEST_TIMEOUT, size: 2 }).view
-      .getUint16(0);
+    const port = (yield {
+      timeout: SOCKS_REQUEST_TIMEOUT,
+      size: 2,
+    }).view.getUint16(0);
 
     destination = { mode: "domain", host, port };
   } else {
     log.debug(`unsupported address type.`);
-    await writer.write(
-      createResponse(Socks5Reply.ADDRESS_TYPE_NOT_SUPPORTED),
-    );
+    await writer.write(createResponse(Socks5Reply.ADDRESS_TYPE_NOT_SUPPORTED));
     return;
   }
 
-  log.trace(
-    `creating tunnel (${destination.host}:${destination.port}).`,
+  log.trace(`creating tunnel (${destination.host}:${destination.port}).`);
+  const tunnelResponse = await createTunnel(destination, log).catch(
+    () =>
+      ({
+        ok: false,
+        error: "general-failure",
+      }) satisfies SocksTunnelResponse,
   );
-  const tunnelResponse = await createTunnel(destination, log)
-    .catch(() => ({
-      ok: false,
-      error: "general-failure",
-    } satisfies SocksTunnelResponse));
 
   if (tunnelResponse.ok) {
-    log.trace(
-      `tunnel created successfully.`,
-    );
+    log.trace(`tunnel created successfully.`);
     await writer.write(createResponse(Socks5Reply.SUCCEEDED));
     return tunnelResponse.tunnel;
   } else {
-    log.trace(
-      `error creating tunnel (${tunnelResponse.error}).`,
-    );
+    log.trace(`error creating tunnel (${tunnelResponse.error}).`);
     let reply: Socks5Reply;
     switch (tunnelResponse.error) {
       case "not-allowed":

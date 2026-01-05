@@ -79,8 +79,9 @@ export class WsEndpointType extends Type<URL> {
     }
   }
 }
-export class SocketBindType
-  extends Type<TunnelRelayClientOptions["services"]["bind"][number]> {
+export class SocketBindType extends Type<
+  TunnelRelayClientOptions["services"]["bind"][number]
+> {
   public parse(
     type: ArgumentValue,
   ): TunnelRelayClientOptions["services"]["bind"][number] {
@@ -106,8 +107,9 @@ export class SocketBindType
   }
 }
 
-export class SocketConnectType
-  extends Type<TunnelRelayClientOptions["services"]["connect"][number]> {
+export class SocketConnectType extends Type<
+  TunnelRelayClientOptions["services"]["connect"][number]
+> {
   public parse(
     type: ArgumentValue,
   ): TunnelRelayClientOptions["services"]["connect"][number] {
@@ -260,7 +262,7 @@ await new Command()
       const relayPublicKeyFile = options.authIdentityRelayPublicKey!;
 
       setupLog_auth.trace(`checking local private key file existence`);
-      if (!await safeStat(localPrivateKeyFile)) {
+      if (!(await safeStat(localPrivateKeyFile))) {
         setupLog_auth.error(
           `Identity private key file '${localPrivateKeyFile}' not found.`,
         );
@@ -268,7 +270,7 @@ await new Command()
       }
 
       setupLog_auth.trace(`checking relay public key file existence`);
-      if (!await safeStat(relayPublicKeyFile)) {
+      if (!(await safeStat(relayPublicKeyFile))) {
         setupLog_auth.error(
           `Relay public key file '${relayPublicKeyFile}' not found.`,
         );
@@ -367,17 +369,19 @@ await new Command()
           `configuring dynamic proxy connect to service from file '${options.proxyConnectDynamic}'`,
         );
 
-        let proxyConfiguration: undefined | {
-          default:
-            | { type: "abort" | "local" }
-            | { type: "relay"; service: string };
-          routes: {
-            destination: string;
-            route:
-              | { type: "local"; remap?: string }
-              | { type: "relay"; remap?: string; service: string };
-          }[];
-        };
+        let proxyConfiguration:
+          | undefined
+          | {
+            default:
+              | { type: "abort" | "local" }
+              | { type: "relay"; service: string };
+            routes: {
+              destination: string;
+              route:
+                | { type: "local"; remap?: string }
+                | { type: "relay"; remap?: string; service: string };
+            }[];
+          };
         const readProxyMapping = async (): Promise<boolean> => {
           const readLog = prefixLogger(setupLog_proxyConnect, "[read]");
           readLog.trace("checking config file existance");
@@ -417,7 +421,7 @@ await new Command()
               const destination = chunks[0];
               const service = chunks[2];
               const isRemap = chunks[3] === "remap";
-              const remap = isRemap && chunks[4] || undefined;
+              const remap = (isRemap && chunks[4]) || undefined;
 
               const isDefault = destination === "default";
               const isLocal = service === "@local";
@@ -466,7 +470,7 @@ await new Command()
           }
         };
 
-        if (!await readProxyMapping()) {
+        if (!(await readProxyMapping())) {
           setupLog_proxyConnect.error(`Unable to parse config file.`);
           return;
         }
@@ -500,8 +504,9 @@ await new Command()
         proxyConnectDestination = (request) => {
           if (!proxyConfiguration) return { type: "abort" };
 
-          const route = proxyConfiguration.routes
-            .find((r) => r.destination === request.host);
+          const route = proxyConfiguration.routes.find(
+            (r) => r.destination === request.host,
+          );
 
           if (route) {
             if (route.route.type === "relay") {
@@ -709,7 +714,7 @@ await new Command()
       }
     }
 
-    if (!await readPermissions()) {
+    if (!(await readPermissions())) {
       setupLog_clients.error(`Unable to parse clients file.`);
       return;
     }
@@ -754,9 +759,10 @@ await new Command()
             lookup: (identifier) => {
               if (!relayPermissions) return undefined;
 
-              const client = relayPermissions.clients.find((c) =>
-                c.auth.mode === "credentials" &&
-                c.auth.identifier === identifier
+              const client = relayPermissions.clients.find(
+                (c) =>
+                  c.auth.mode === "credentials" &&
+                  c.auth.identifier === identifier,
               );
               if (!client || client.auth.mode !== "credentials") {
                 return undefined;
@@ -771,8 +777,8 @@ await new Command()
                     : {
                       enabled: true,
                       allowed: (service: string) =>
-                        client.permissions.some((p) =>
-                          p.type === "bind" && p.service(service)
+                        client.permissions.some(
+                          (p) => p.type === "bind" && p.service(service),
                         ),
                     },
                   connect: !client.permissions.some((p) => p.type === "connect")
@@ -780,8 +786,8 @@ await new Command()
                     : {
                       enabled: true,
                       allowed: (service: string) =>
-                        client.permissions.some((p) =>
-                          p.type === "connect" && p.service(service)
+                        client.permissions.some(
+                          (p) => p.type === "connect" && p.service(service),
                         ),
                     },
                 } satisfies TunnelSecurityPermissions,
@@ -794,10 +800,14 @@ await new Command()
             lookupClient: (hash) => {
               if (!relayPermissions) return undefined;
 
-              const client = relayPermissions.clients.find((c) =>
-                c.auth.mode === "identity" && areBuffersEqual(hash, c.auth.hash)
+              const client = relayPermissions.clients.find(
+                (c) =>
+                  c.auth.mode === "identity" &&
+                  areBuffersEqual(hash, c.auth.hash),
               );
-              if (!client || client.auth.mode !== "identity") return undefined;
+              if (!client || client.auth.mode !== "identity") {
+                return undefined;
+              }
 
               return {
                 key: client.auth.publicKey,
@@ -807,17 +817,19 @@ await new Command()
                     : {
                       enabled: true,
                       allowed: (service: string) =>
-                        client.permissions.some((p) =>
-                          p.type === "bind" && p.service(service)
+                        client.permissions.some(
+                          (p) => p.type === "bind" && p.service(service),
                         ),
                     },
-                  connect: !client.permissions.some((p) => p.type === "connect")
+                  connect: !client.permissions.some(
+                      (p) => p.type === "connect",
+                    )
                     ? { enabled: false }
                     : {
                       enabled: true,
                       allowed: (service: string) =>
-                        client.permissions.some((p) =>
-                          p.type === "connect" && p.service(service)
+                        client.permissions.some(
+                          (p) => p.type === "connect" && p.service(service),
                         ),
                     },
                 } satisfies TunnelSecurityPermissions,
@@ -893,9 +905,7 @@ await new Command()
       pair.publicKey.content.decoded.toBase64(),
     );
 
-    log.info(
-      `Identity '${privateIdentityFile}' generated successfully.`,
-    );
+    log.info(`Identity '${privateIdentityFile}' generated successfully.`);
   })
   /**
    * 'generate-credentials' command definition

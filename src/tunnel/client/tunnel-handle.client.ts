@@ -21,12 +21,8 @@ import { handle_SERVICE_LINK } from "./commands/handle-SERVICE_LINK.ts";
 import { handle_SERVICE_STREAM } from "./commands/handle-SERVICE_STREAM.ts";
 import { handle_SOCKET_CLOSED } from "./commands/handle-SOCKET_CLOSED.ts";
 import { handle_UNSUPPORTED } from "./commands/handle-UNSUPPORTED.ts";
-import {
-  handleTunnelClientService as handleTunnelClientServices,
-} from "./services/client-service-handler.ts";
-import {
-  TunnelClientRawSocketSericeServer,
-} from "./services/raw-socket-server.service.ts";
+import { handleTunnelClientService as handleTunnelClientServices } from "./services/client-service-handler.ts";
+import { TunnelClientRawSocketSericeServer } from "./services/raw-socket-server.service.ts";
 import { TunnelClientSocksProxyServiceServer } from "./services/socks-proxy-server.service.ts";
 import {
   TunnelClientCommandHandler,
@@ -83,9 +79,7 @@ export async function handleClientSocket({
       );
       ready.reject(queue.abortReason());
     } else {
-      log.trace(
-        "[listener] socket connection opened, notifying ready",
-      );
+      log.trace("[listener] socket connection opened, notifying ready");
       ready.resolve();
     }
   };
@@ -102,7 +96,7 @@ export async function handleClientSocket({
     ready.reject(
       new TunnelClientError({
         reason: "socket-error",
-        error: ("error" in event) ? event.error : event,
+        error: "error" in event ? event.error : event,
       }),
     );
   };
@@ -120,7 +114,7 @@ export async function handleClientSocket({
     queue.abortWith(
       new TunnelClientError({
         reason: "socket-error",
-        error: ("error" in event) ? event.error : event,
+        error: "error" in event ? event.error : event,
       }),
     );
   };
@@ -185,10 +179,7 @@ export async function handleClientSocket({
   const encoder = new TextEncoder();
 
   handleTunnelClientServices({
-    services: [
-      ...services.rawSockets,
-      ...services.socksProxies,
-    ],
+    services: [...services.rawSockets, ...services.socksProxies],
     generateUID: () => localUID++,
 
     connections: serviceConnections,

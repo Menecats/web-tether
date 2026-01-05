@@ -11,7 +11,7 @@ import { newRNG } from "./rng.ts";
 
 export const LogLevels = ["trace", "debug", "info", "warn", "error"] as const;
 
-export type LogLevel = typeof LogLevels[number];
+export type LogLevel = (typeof LogLevels)[number];
 export type LogFunction = (...content: unknown[]) => void;
 export type Logger = Record<LogLevel, LogFunction>;
 
@@ -27,10 +27,7 @@ export function createLogger(
   };
 }
 
-export function prefixLogger(
-  logger: Logger,
-  ...prefix: unknown[]
-): Logger {
+export function prefixLogger(logger: Logger, ...prefix: unknown[]): Logger {
   const prefixer =
     (fn: LogFunction, context: unknown): LogFunction =>
     (...content: unknown[]) => {
@@ -49,10 +46,7 @@ export function prefixLogger(
 export function colorizeOutput(
   output: (...args: unknown[]) => void,
   filter: (level: LogLevel) => boolean = () => true,
-): (
-  level: LogLevel,
-  content: unknown[],
-) => void {
+): (level: LogLevel, content: unknown[]) => void {
   const levelColors: Record<LogLevel, (content: string) => string> = {
     trace: gray,
     debug: yellow,

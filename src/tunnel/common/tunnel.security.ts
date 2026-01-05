@@ -33,7 +33,7 @@ export function encodeIV(role: TunnelSecurityRole, counter: bigint) {
   const iv = new Uint8Array(12);
   const view = new DataView(iv.buffer);
 
-  counter = counter % (2n ** 88n);
+  counter = counter % 2n ** 88n;
 
   const high = counter >> 64n;
   const low = counter & (2n ** 64n - 1n);

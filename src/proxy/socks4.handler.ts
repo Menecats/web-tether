@@ -44,72 +44,54 @@ export async function* handleSocks4(
     `socks4: got command (${printEnum(Socks4Command, command)}).`,
   );
   if (command !== Socks4Command.CONNECT) {
-    options.log.trace(
-      `socks4: unsupported command.`,
-    );
+    options.log.trace(`socks4: unsupported command.`);
     await writer.write(createResponse(Socks4Reply.FAILURE));
     return undefined;
   }
 
   const destinationPort = view.getUint16(2);
-  options.log.trace(
-    `socks4: got destination port (${destinationPort}).`,
-  );
+  options.log.trace(`socks4: got destination port (${destinationPort}).`);
 
   let destinationMode: "ipv4" | "domain" = "ipv4";
   let destinationHost = buffer.subarray(4).join(".");
-  options.log.trace(
-    `socks4: got destination host (${destinationHost}).`,
-  );
+  options.log.trace(`socks4: got destination host (${destinationHost}).`);
 
   const decoder = new TextDecoder();
 
-  const userIdentifierBuffer =
-    (yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, until: 0x00 }).buffer;
+  const userIdentifierBuffer = (yield {
+    timeout: SOCKS_HANDSHAKE_TIMEOUT,
+    until: 0x00,
+  }).buffer;
   const userIdentifier = decoder.decode(
     userIdentifierBuffer.subarray(0, userIdentifierBuffer.length - 1),
   );
 
-  options.log.trace(
-    `socks4: got user identifier.`,
-  );
+  options.log.trace(`socks4: got user identifier.`);
 
   if (socks4.auth.enabled) {
-    options.log.trace(
-      `socks4: validating used identifier.`,
-    );
+    options.log.trace(`socks4: validating used identifier.`);
     const result = await socks4.auth.validate(userIdentifier);
-    options.log.trace(
-      `socks4: validation result (${result}).`,
-    );
+    options.log.trace(`socks4: validation result (${result}).`);
     if (result === "no-provider") {
-      options.log.trace(
-        `socks4: closing.`,
-      );
-      await writer.write(
-        createResponse(Socks4Reply.USER_REJECTED_NO_PROVIDER),
-      );
+      options.log.trace(`socks4: closing.`);
+      await writer.write(createResponse(Socks4Reply.USER_REJECTED_NO_PROVIDER));
       return undefined;
     }
     if (result === "no-match") {
-      options.log.trace(
-        `socks4: closing.`,
-      );
-      await writer.write(
-        createResponse(Socks4Reply.USER_REJECTED_NO_MATCH),
-      );
+      options.log.trace(`socks4: closing.`);
+      await writer.write(createResponse(Socks4Reply.USER_REJECTED_NO_MATCH));
       return undefined;
     }
   }
 
   if (destinationHost.startsWith("0.0.0.") && destinationHost !== "0.0.0.0") {
-    options.log.trace(
-      `socks4: detected socks4a usage.`,
-    );
+    options.log.trace(`socks4: detected socks4a usage.`);
 
     destinationMode = "domain";
-    const destinationHostBuffer =
-      (yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, until: 0x00 }).buffer;
+    const destinationHostBuffer = (yield {
+      timeout: SOCKS_HANDSHAKE_TIMEOUT,
+      until: 0x00,
+    }).buffer;
     destinationHost = decoder.decode(
       destinationHostBuffer.subarray(0, destinationHostBuffer.length - 1),
     );
@@ -131,9 +113,7 @@ export async function* handleSocks4(
   const tunnelResponse = await options.tunnel(destination, options.log);
 
   if (tunnelResponse.ok) {
-    options.log.trace(
-      `socks4: tunnel created successfully.`,
-    );
+    options.log.trace(`socks4: tunnel created successfully.`);
     await writer.write(createResponse(Socks4Reply.SUCCESS));
     return tunnelResponse.tunnel;
   } else {

@@ -32,10 +32,7 @@ const testSalt = new Uint8Array([
   0x0f,
 ]);
 const testHash = new Uint8Array(
-  await pbkdf2Hash512(
-    new TextEncoder().encode("test"),
-    testSalt,
-  ),
+  await pbkdf2Hash512(new TextEncoder().encode("test"), testSalt),
 );
 
 const testPermissions = {

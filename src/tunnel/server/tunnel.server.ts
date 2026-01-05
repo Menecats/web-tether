@@ -17,9 +17,7 @@ export type CreateTunnelRelayOptions = {
       | { enabled: false }
       | {
         enabled: true;
-        lookup: (
-          identifier: string,
-        ) =>
+        lookup: (identifier: string) =>
           | Promise<
             | {
               salt: Uint8Array<ArrayBuffer>;
@@ -72,9 +70,7 @@ export async function createTunnelRelayServer(
   options.log.debug(`validating configuration.`);
   if (options.auth.identity.enabled) {
     options.log.trace(`validating 'identity' authentication server key pair.`);
-    const valid = await verifyCryptoKeyPair(
-      options.auth.identity.serverKeys,
-    );
+    const valid = await verifyCryptoKeyPair(options.auth.identity.serverKeys);
     if (!valid) {
       throw new TunnelServerError({
         reason: "invalid-configuration",

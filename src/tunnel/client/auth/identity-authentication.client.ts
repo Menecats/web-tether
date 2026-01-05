@@ -26,9 +26,14 @@ export type HandleClientIdentityAuthenticationOptions = {
   auth: TunnelRelayClientOptions["auth"] & { mode: "identity" };
   log: Logger;
 };
-export async function handleClientIdentityAuthentication(
-  { socket, queue, auth, log }: HandleClientIdentityAuthenticationOptions,
-): Promise<TunnelSecurity<"client">> {
+export async function handleClientIdentityAuthentication({
+  socket,
+  queue,
+  auth,
+  log,
+}: HandleClientIdentityAuthenticationOptions): Promise<
+  TunnelSecurity<"client">
+> {
   log.debug(`initializing`);
 
   log.trace(`hashing client key`);

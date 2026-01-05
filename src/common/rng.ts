@@ -4,7 +4,7 @@ export function newRNG(seedStr: string) {
 
     for (let i = 0; i < str.length; i++) {
       h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
-      h = h << 13 | h >>> 19;
+      h = (h << 13) | (h >>> 19);
     }
 
     return function () {
@@ -21,12 +21,12 @@ export function newRNG(seedStr: string) {
       c >>>= 0;
       d >>>= 0;
       let t = (a + b) | 0;
-      a = b ^ b >>> 9;
-      b = c + (c << 3) | 0;
-      c = c << 21 | c >>> 11;
-      d = d + 1 | 0;
-      t = t + d | 0;
-      c = c + t | 0;
+      a = b ^ (b >>> 9);
+      b = (c + (c << 3)) | 0;
+      c = (c << 21) | (c >>> 11);
+      d = (d + 1) | 0;
+      t = (t + d) | 0;
+      c = (c + t) | 0;
       return (t >>> 0) / 4294967296;
     };
   }
@@ -38,11 +38,10 @@ export function newRNG(seedStr: string) {
 export function pseudoRandomUUID(seedStr: string) {
   const rng = newRNG(seedStr);
 
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-    .replace(/[xy]/g, function (c) {
-      const r = rng() * 16 | 0;
-      const v = c === "x" ? r : (r & 0x3 | 0x8);
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (rng() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
 
-      return v.toString(16);
-    });
+    return v.toString(16);
+  });
 }

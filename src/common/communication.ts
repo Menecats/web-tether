@@ -21,10 +21,7 @@ export type ConnectionTunnelErrorReason =
 
 export function createConnectionTunnelPair(
   onClose?: (source: ConnectionTunnel) => void,
-): [
-  ConnectionTunnel,
-  ConnectionTunnel,
-] {
+): [ConnectionTunnel, ConnectionTunnel] {
   const aToB = new TransformStream<
     Uint8Array<ArrayBuffer>,
     Uint8Array<ArrayBuffer>
@@ -37,16 +34,24 @@ export function createConnectionTunnelPair(
   const close = () => {
     try {
       bToA.readable.cancel().catch(() => {});
-    } catch { /* Ignore */ }
+    } catch {
+      /* Ignore */
+    }
     try {
       bToA.writable.close().catch(() => {});
-    } catch { /* Ignore */ }
+    } catch {
+      /* Ignore */
+    }
     try {
       aToB.readable.cancel().catch(() => {});
-    } catch { /* Ignore */ }
+    } catch {
+      /* Ignore */
+    }
     try {
       aToB.writable.close().catch(() => {});
-    } catch { /* Ignore */ }
+    } catch {
+      /* Ignore */
+    }
   };
 
   const tunnelA: ConnectionTunnel = {
@@ -56,7 +61,9 @@ export function createConnectionTunnelPair(
       close();
       try {
         onClose?.(tunnelA);
-      } catch { /* Ignore */ }
+      } catch {
+        /* Ignore */
+      }
     },
   };
 
@@ -68,55 +75,68 @@ export function createConnectionTunnelPair(
       close();
       try {
         onClose?.(tunnelB);
-      } catch { /* Ignore */ }
+      } catch {
+        /* Ignore */
+      }
     },
   };
 
   return [tunnelA, tunnelB];
 }
 
-export function createDecipheredQueue(
-  { cipheredQueue: queue, security, signal, decryptQueueSize }: {
-    cipheredQueue: ConsumableAsyncQueue<ArrayBuffer>;
-    security: TunnelSecurity<"client" | "relay">;
-    signal: AbortSignal;
-    decryptQueueSize: number;
-  },
-) {
+export function createDecipheredQueue({
+  cipheredQueue: queue,
+  security,
+  signal,
+  decryptQueueSize,
+}: {
+  cipheredQueue: ConsumableAsyncQueue<ArrayBuffer>;
+  security: TunnelSecurity<"client" | "relay">;
+  signal: AbortSignal;
+  decryptQueueSize: number;
+}) {
   const decryptQueue = consumableAsyncQueue<ArrayBuffer, ArrayBuffer>({
     signal,
     map: (packet, queueSignal) => security.decrypt(packet, queueSignal),
   });
 
-  asyncAction(async (actionSignal) => {
-    try {
-      while (!actionSignal.aborted) {
-        const encryptedPacket = await queue.shift({ signal: actionSignal });
-        if (decryptQueue.queued() >= decryptQueueSize) {
-          await decryptQueue.waitFor("dequeue", { signal: actionSignal });
+  asyncAction(
+    async (actionSignal) => {
+      try {
+        while (!actionSignal.aborted) {
+          const encryptedPacket = await queue.shift({ signal: actionSignal });
+          if (decryptQueue.queued() >= decryptQueueSize) {
+            await decryptQueue.waitFor("dequeue", { signal: actionSignal });
+          }
+
+          if (!actionSignal.aborted) {
+            decryptQueue.push(encryptedPacket);
+          }
+        }
+      } catch (error) {
+        if (!queue.aborted()) {
+          queue.abortWith(
+            error instanceof TunnelClientError
+              ? error
+              : new TunnelClientError({ reason: "unknown-error", error }),
+          );
         }
 
-        if (!actionSignal.aborted) {
-          decryptQueue.push(encryptedPacket);
-        }
+        decryptQueue.abortWith(queue.abortReason());
       }
-    } catch (error) {
-      if (!queue.aborted()) {
-        queue.abortWith(
-          (error instanceof TunnelClientError)
-            ? error
-            : new TunnelClientError({ reason: "unknown-error", error }),
-        );
-      }
-
-      decryptQueue.abortWith(queue.abortReason());
-    }
-  }, { signal });
+    },
+    { signal },
+  );
 
   return decryptQueue;
 }
 
-export function createCipheredWriter({ socket, security, signal, log }: {
+export function createCipheredWriter({
+  socket,
+  security,
+  signal,
+  log,
+}: {
   socket: WebSocket;
   security: TunnelSecurity<"client" | "relay">;
   signal: AbortSignal;
@@ -127,17 +147,20 @@ export function createCipheredWriter({ socket, security, signal, log }: {
   });
 
   const write: TunnelWriter = (data) => queue.push(data);
-  const { done } = asyncAction(async () => {
-    try {
-      while (!signal.aborted) {
-        const next = await queue.shift({ signal });
-        const ciphered = await security.encrypt(next);
-        socket.send(ciphered);
+  const { done } = asyncAction(
+    async () => {
+      try {
+        while (!signal.aborted) {
+          const next = await queue.shift({ signal });
+          const ciphered = await security.encrypt(next);
+          socket.send(ciphered);
+        }
+      } catch (err) {
+        log.error(`error sending data`, err);
       }
-    } catch (err) {
-      log.error(`error sending data`, err);
-    }
-  }, { signal });
+    },
+    { signal },
+  );
 
   return { done, write };
 }

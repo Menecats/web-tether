@@ -2,15 +2,20 @@ import { printEnum } from "../../../common/utils.ts";
 import { RelayServiceConnectionReason } from "../../server/tunnel.relay.ts";
 import { TunnelClientCommandHandler } from "../tunnel.client.types.ts";
 
-export const handle_SERVICE_CLOSED: TunnelClientCommandHandler = (
-  { buffer, log, services },
-) => {
+export const handle_SERVICE_CLOSED: TunnelClientCommandHandler = ({
+  buffer,
+  log,
+  services,
+}) => {
   const uid = buffer.int32();
   const reason = buffer.uint8();
 
   log.trace(
     `closing connection [${uid}] with reason '${
-      printEnum(RelayServiceConnectionReason, reason)
+      printEnum(
+        RelayServiceConnectionReason,
+        reason,
+      )
     }'`,
   );
 

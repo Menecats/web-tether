@@ -24,9 +24,11 @@ export type TunnelRelayClientOptions = {
   performance: {
     decryptQueueSize: number;
     connectionHandleTimeout: number;
-    reconnectDelay: (
-      context: { attempts: number; valid: boolean; reason: unknown },
-    ) => number | false;
+    reconnectDelay: (context: {
+      attempts: number;
+      valid: boolean;
+      reason: unknown;
+    }) => number | false;
   };
 
   auth:
@@ -42,9 +44,7 @@ export type TunnelRelayClientOptions = {
     };
 
   services: {
-    proxyServer:
-      | { enabled: false }
-      | { enabled: true; service: string };
+    proxyServer: { enabled: false } | { enabled: true; service: string };
     proxyClient:
       | { enabled: false }
       | {

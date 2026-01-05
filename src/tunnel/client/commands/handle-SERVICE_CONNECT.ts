@@ -7,9 +7,12 @@ import {
 } from "../../server/tunnel.relay.ts";
 import { TunnelClientCommandHandler } from "../tunnel.client.types.ts";
 
-export const handle_SERVICE_CONNECT: TunnelClientCommandHandler = (
-  { buffer, write, services, log },
-) => {
+export const handle_SERVICE_CONNECT: TunnelClientCommandHandler = ({
+  buffer,
+  write,
+  services,
+  log,
+}) => {
   log.trace(`received connect response`);
 
   const encodedUID = buffer.data(4, { ahead: true });
@@ -17,9 +20,7 @@ export const handle_SERVICE_CONNECT: TunnelClientCommandHandler = (
 
   const reply = buffer.uint8();
 
-  log.trace(
-    `connect [${uid}]: ${printEnum(RelayConnectReply, reply)}`,
-  );
+  log.trace(`connect [${uid}]: ${printEnum(RelayConnectReply, reply)}`);
 
   const service = services.connections.get(uid);
   if (reply === RelayConnectReply.SUCCESS) {

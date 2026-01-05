@@ -6,9 +6,7 @@ export async function validateTunnelClientConfiguration(
   options: TunnelRelayClientOptions,
 ) {
   if (options.auth.mode === "identity") {
-    const valid = await verifyCryptoKeyPair(
-      options.auth.clientKeys,
-    );
+    const valid = await verifyCryptoKeyPair(options.auth.clientKeys);
     if (!valid) {
       throw new TunnelClientError({
         reason: "invalid-configuration",
@@ -30,7 +28,9 @@ export async function validateTunnelClientConfiguration(
         return accumulated;
       }, new Map())
       .entries(),
-  ].filter(([, count]) => count > 1).map(([service]) => service);
+  ]
+    .filter(([, count]) => count > 1)
+    .map(([service]) => service);
   if (duplicateServices.length) {
     throw new TunnelClientError({
       reason: "invalid-configuration",
@@ -46,18 +46,14 @@ export async function validateTunnelClientConfiguration(
   ].flat();
   const duplicatePorts = [
     ...boundAddresses
-      .reduce<Map<number, number>>(
-        (accumulated, address) => {
-          accumulated.set(
-            address.port,
-            (accumulated.get(address.port) || 0) + 1,
-          );
-          return accumulated;
-        },
-        new Map(),
-      )
+      .reduce<Map<number, number>>((accumulated, address) => {
+        accumulated.set(address.port, (accumulated.get(address.port) || 0) + 1);
+        return accumulated;
+      }, new Map())
       .entries(),
-  ].filter(([, count]) => count > 1).map(([port]) => port);
+  ]
+    .filter(([, count]) => count > 1)
+    .map(([port]) => port);
   if (duplicatePorts.length) {
     throw new TunnelClientError({
       reason: "invalid-configuration",

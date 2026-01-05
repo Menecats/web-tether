@@ -17,9 +17,14 @@ import {
   TunnelClientLink,
 } from "../tunnel.client.types.ts";
 
-export const handle_SERVICE_LINK: TunnelClientCommandHandler = (
-  { decoder, buffer, write, signal, services, log },
-) => {
+export const handle_SERVICE_LINK: TunnelClientCommandHandler = ({
+  decoder,
+  buffer,
+  write,
+  signal,
+  services,
+  log,
+}) => {
   const encodedUID = buffer.data(4, { ahead: true });
   const uid = buffer.int32();
 
@@ -73,8 +78,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = (
 
   const link: TunnelClientLink = {
     uid,
-    tunnel: Deno
-      .connect(destination)
+    tunnel: Deno.connect(destination)
       .then((connection) => {
         serviceLog.trace("connected");
 
@@ -117,7 +121,10 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = (
     close: (reason) => {
       serviceLog.trace(
         `closing connection with reason: ${
-          printEnum(RelayServiceConnectionReason, reason)
+          printEnum(
+            RelayServiceConnectionReason,
+            reason,
+          )
         }`,
       );
       finalize();

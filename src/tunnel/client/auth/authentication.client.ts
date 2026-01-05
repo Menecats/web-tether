@@ -10,9 +10,12 @@ export type HandleClientAuthenticationOptions = {
   auth: TunnelRelayClientOptions["auth"];
   log: Logger;
 };
-export async function handleClientAuthentication(
-  { socket, queue, auth, log }: HandleClientAuthenticationOptions,
-) {
+export async function handleClientAuthentication({
+  socket,
+  queue,
+  auth,
+  log,
+}: HandleClientAuthenticationOptions) {
   return auth.mode === "credentials"
     ? await handleClientCredentialsAuthentication({
       socket,

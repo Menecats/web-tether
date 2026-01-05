@@ -87,10 +87,7 @@ export async function handleAdvencedAuthenticationServer(
 
     log.debug("socket unauthorized (unknown client key hash).");
     socket.send(
-      new Uint8Array([
-        RelayVersion7,
-        RelayAuthentication.UNAUTHORIZED,
-      ]),
+      new Uint8Array([RelayVersion7, RelayAuthentication.UNAUTHORIZED]),
     );
     throw new TunnelServerError({ reason: "auth-unknown-client" });
   }
@@ -185,19 +182,13 @@ export async function handleAdvencedAuthenticationServer(
 
     log.debug("socket authenticated.");
     socket.send(
-      new Uint8Array([
-        RelayVersion7,
-        RelayAuthentication.AUTHORIZED,
-      ]),
+      new Uint8Array([RelayVersion7, RelayAuthentication.AUTHORIZED]),
     );
     return security;
   } catch (error) {
     log.debug("socket unauthorized (challenge failed).");
     socket.send(
-      new Uint8Array([
-        RelayVersion7,
-        RelayAuthentication.UNAUTHORIZED,
-      ]),
+      new Uint8Array([RelayVersion7, RelayAuthentication.UNAUTHORIZED]),
     );
     throw error;
   }
