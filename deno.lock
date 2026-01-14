@@ -16,6 +16,7 @@
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/text@~1.0.7": "1.0.16",
     "jsr:@std/yaml@^1.0.10": "1.0.10",
+    "npm:@opentelemetry/api@^1.9.0": "1.9.0",
     "npm:@types/chroma-js@^3.1.2": "3.1.2",
     "npm:chroma-js@^3.2.0": "3.2.0",
     "npm:zod@^4.2.1": "4.2.1"
@@ -81,6 +82,9 @@
     }
   },
   "npm": {
+    "@opentelemetry/api@1.9.0": {
+      "integrity": "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="
+    },
     "@types/chroma-js@3.1.2": {
       "integrity": "sha512-YBTQqArPN8A0niHXCwrO1z5x++a+6l0mLBykncUpr23oIPW7L4h39s6gokdK/bDrPmSh8+TjMmrhBPnyiaWPmQ=="
     },
@@ -102,6 +106,7 @@
       "jsr:@std/net@^1.0.6",
       "jsr:@std/path@^1.1.4",
       "jsr:@std/yaml@^1.0.10",
+      "npm:@opentelemetry/api@^1.9.0",
       "npm:@types/chroma-js@^3.1.2",
       "npm:chroma-js@^3.2.0",
       "npm:zod@^4.2.1"

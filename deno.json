@@ -10,6 +10,7 @@
   "imports": {
     "@cliffy/command": "jsr:@cliffy/command@^1.0.0-rc.8",
     "@cliffy/flags": "jsr:@cliffy/flags@^1.0.0-rc.8",
+    "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0",
     "@std/async": "jsr:@std/async@^1.0.15",
     "@std/cli": "jsr:@std/cli@^1.0.25",
     "@std/crypto": "jsr:@std/crypto@^1.0.5",
