@@ -2,10 +2,10 @@
   "tasks": {
     "proxy": "deno run --allow-net src/proxy.ts",
     "proxy:dev": "deno run --watch --allow-net src/proxy.ts",
-    "tunnel-server": "deno run -A ./src/cli/cli.ts relay --clients example-files/example-server-permissions.yml --identity example-files/example-identity --log-level trace",
-    "tunnel-server:dev": "deno run --watch -A ./src/cli/cli.ts relay --clients example-files/example-server-permissions.yml --identity example-files/example-identity --log-level trace",
-    "tunnel-client": "deno run -A ./src/cli/cli.ts connect --auth-identity-private-key ./example-files/example-identity --auth-identity-relay-public-key ./example-files/example-identity.pub ws://localhost:3000/relay -l trace",
-    "tunnel-client:dev": "deno run --watch -A ./src/cli/cli.ts connect --auth-identity-private-key ./example-files/example-identity --auth-identity-relay-public-key ./example-files/example-identity.pub ws://localhost:3000/relay -l trace"
+    "tunnel-server": "deno run -A ./src/cli/cli.ts relay --clients example-files/example-server-permissions.yml --identity example-files/example-identity",
+    "tunnel-server:dev": "deno run --watch -A ./src/cli/cli.ts relay --clients example-files/example-server-permissions.yml --identity example-files/example-identity",
+    "tunnel-client": "deno run -A ./src/cli/cli.ts connect --auth-identity-private-key ./example-files/example-identity --auth-identity-relay-public-key ./example-files/example-identity.pub ws://localhost:3000/relay",
+    "tunnel-client:dev": "deno run --watch -A ./src/cli/cli.ts connect --auth-identity-private-key ./example-files/example-identity --auth-identity-relay-public-key ./example-files/example-identity.pub ws://localhost:3000/relay"
   },
   "imports": {
     "@cliffy/command": "jsr:@cliffy/command@^1.0.0-rc.8",
