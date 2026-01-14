@@ -378,8 +378,8 @@ await new Command()
             routes: {
               destination: string;
               route:
-                | { type: "local"; remap?: string }
-                | { type: "relay"; remap?: string; service: string };
+                | { type: "local"; as?: string }
+                | { type: "relay"; as?: string; service: string };
             }[];
           };
         const readProxyMapping = async (): Promise<boolean> => {
@@ -420,8 +420,8 @@ await new Command()
 
               const destination = chunks[0];
               const service = chunks[2];
-              const isRemap = chunks[3] === "remap";
-              const remap = (isRemap && chunks[4]) || undefined;
+              const isAs = chunks[3] === "as";
+              const as = (isAs && chunks[4]) || undefined;
 
               const isDefault = destination === "default";
               const isLocal = service === "@local";
@@ -429,7 +429,7 @@ await new Command()
               if (
                 chunks[1] !== "via" ||
                 (chunks.length !== 3 && chunks.length !== 5) ||
-                (chunks.length === 5 && (isDefault || !isRemap))
+                (chunks.length === 5 && (isDefault || !isAs))
               ) {
                 readLog.warn(`Invalid config row #${row}`);
                 continue;
@@ -443,8 +443,8 @@ await new Command()
                 routes.push({
                   destination,
                   route: isLocal
-                    ? { type: "local", remap }
-                    : { type: "relay", remap, service },
+                    ? { type: "local", as }
+                    : { type: "relay", as, service },
                 });
               }
             }
@@ -514,7 +514,7 @@ await new Command()
                 type: "relay",
                 service: route.route.service,
                 destination: {
-                  host: route.route.remap || request.host,
+                  host: route.route.as || request.host,
                   port: request.port,
                 },
               };
@@ -523,7 +523,7 @@ await new Command()
             return {
               type: "local",
               destination: {
-                host: route.route.remap || request.host,
+                host: route.route.as || request.host,
                 port: request.port,
               },
             };

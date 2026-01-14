@@ -1,2 +1,2 @@
-localhost.proxy via proxy remap localhost
+localhost.proxy via proxy as localhost
 default via @local
