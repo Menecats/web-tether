@@ -5,6 +5,7 @@ import { Logger, prefixLogger } from "../../../common/log.ts";
 import { encodeInt32 } from "../../../common/safe-buffer.ts";
 import { ConsumableAsyncQueue } from "../../../common/utils.ts";
 import { TunnelWriter } from "../../common/tunnel.common.types.ts";
+import { errorLevel } from "../../common/tunnel.errors.ts";
 import {
   RelayCommand,
   RelayServiceConnectionReason,
@@ -34,7 +35,7 @@ export function handleClientStream({
 
   const writeLog = prefixLogger(log, "[write]");
   const writeAction = asyncAction(
-    async (writeSignal) => {
+    async ({ signal: writeSignal }) => {
       const writer = tunnel.writable.getWriter();
       try {
         while (!writeSignal.aborted) {
@@ -45,12 +46,10 @@ export function handleClientStream({
         if (err === readActionDone || err === streamClosed) {
           writeLog.trace(`connection terminated`);
         } else {
-          if (!(err instanceof Deno.errors.Interrupted)) {
-            writeLog.trace(
-              `connection closed unexpectedly, notifying closure`,
-              err,
-            );
-          }
+          writeLog[errorLevel(err)](
+            `connection closed unexpectedly, notifying closure`,
+            err,
+          );
 
           const reason = err instanceof Deno.errors.Interrupted
             ? RelayServiceConnectionReason.TRANSPORT_SOCKET_INTERRUPTED
@@ -76,7 +75,7 @@ export function handleClientStream({
 
   const readLog = prefixLogger(log, "[read]");
   const readAction = asyncAction(
-    async (readSignal) => {
+    async ({ signal: readSignal }) => {
       const reader = tunnel.readable.getReader();
       try {
         while (!readSignal.aborted) {
@@ -106,12 +105,10 @@ export function handleClientStream({
         if (err === writeActionDone || err === streamClosed) {
           readLog.trace(`connection terminated`);
         } else {
-          if (!(err instanceof Deno.errors.Interrupted)) {
-            readLog.trace(
-              `connection closed unexpectedly, notifying closure`,
-              err,
-            );
-          }
+          readLog[errorLevel(err)](
+            `connection closed unexpectedly, notifying closure`,
+            err,
+          );
 
           const reason = err instanceof Deno.errors.Interrupted
             ? RelayServiceConnectionReason.TRANSPORT_SOCKET_INTERRUPTED

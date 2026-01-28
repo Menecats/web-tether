@@ -12,6 +12,7 @@ import {
   safelyClose,
 } from "../../../common/utils.ts";
 import { TunnelWriter } from "../../common/tunnel.common.types.ts";
+import { errorLevel } from "../../common/tunnel.errors.ts";
 import { RelayCommand, RelayServiceType } from "../../server/tunnel.relay.ts";
 import { TunnelClientConnection } from "../tunnel.client.types.ts";
 import { handleClientStream } from "./handle-stream.ts";
@@ -54,7 +55,7 @@ export async function handleTunnelClientServices({
       );
 
       return asyncAction(
-        async (actionSignal) => {
+        async ({ signal: actionSignal }) => {
           try {
             while (!actionSignal.aborted) {
               serviceLog.trace("waiting for client");
@@ -156,7 +157,7 @@ export async function handleTunnelClientServices({
               );
             }
           } catch (err) {
-            serviceLog.error("error while listening service", err);
+            serviceLog[errorLevel(err)]("error while listening service", err);
           }
         },
         { signal },

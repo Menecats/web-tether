@@ -8,7 +8,7 @@ export const handle_SERVICE_BIND: TunnelClientCommandHandler = ({
 }) => {
   const reply = buffer.uint8();
   if (reply === RelayBindReply.SUCCESS) {
-    log.debug("bind successful");
+    log.info("bind successful");
   } else {
     log.error(`bind errored: ${printEnum(RelayBindReply, reply)}`);
   }

@@ -2,7 +2,7 @@ import {
   createCipheredWriter,
   createDecipheredQueue,
 } from "../../common/communication.ts";
-import { Logger, prefixLogger } from "../../common/log.ts";
+import { ConfigurableLogger, Logger, prefixLogger } from "../../common/log.ts";
 import {
   encodeInt32,
   encodeWithUint16Length,
@@ -107,7 +107,9 @@ export type RelayServiceConnection = {
 };
 
 export type Relay = {
-  service: (service: string) => RelayServiceType | undefined;
+  service: (service: string) =>
+    | { remote: string; type: RelayServiceType }
+    | undefined;
   bind: (socket: WebSocket, services: RelayService[]) => void;
 
   connection: (
@@ -121,7 +123,7 @@ export type Relay = {
     metadata: Uint8Array<ArrayBuffer>,
   ) => void;
 
-  connected: (socket: WebSocket, write: TunnelWriter) => void;
+  connected: (socket: WebSocket, write: TunnelWriter, alias: string) => void;
   disconnected: (socket: WebSocket) => void;
 };
 
@@ -146,7 +148,7 @@ async function authenticateRelay(
   }
 
   const authMode = packet.uint8();
-  log.trace(`using appropriate authenticaiton schema.`);
+  log.debug(`using appropriate authenticaiton schema.`);
 
   if (authMode === RelayAuthentication.BASIC_AUTH) {
     if (auth.credentials.enabled) {
@@ -223,16 +225,23 @@ function isBlockingFailure(operation: RelayFailure): boolean {
   }
 }
 
-export async function handleSocketRelay(
-  options: CreateTunnelRelayOptions,
-  socket: WebSocket,
-  relay: Relay,
-) {
+export type HandleSocketRelayOptions = {
+  options: Omit<CreateTunnelRelayOptions, "log">;
+  log: ConfigurableLogger<{ alias: string }>;
+  socket: WebSocket;
+  relay: Relay;
+};
+export async function handleSocketRelay({
+  options,
+  log,
+  socket,
+  relay,
+}: HandleSocketRelayOptions) {
   try {
     using queue = consumableAsyncQueue<ArrayBuffer>({ signal: options.signal });
     const ready = Promise.withResolvers<void>();
 
-    options.log.trace(`configuring 'ready' listeners.`);
+    log.debug(`configuring 'ready' listeners.`);
 
     socket.binaryType = "arraybuffer";
     socket.onmessage = ({ data }) => {
@@ -240,14 +249,14 @@ export async function handleSocketRelay(
     };
     socket.onopen = () => {
       if (queue.aborted()) {
-        options.log.debug(
+        log.debug(
           "[listener]",
           "socket connection opened, but queue is already aborted, rejecting.",
           queue.abortReason(),
         );
         ready.reject(queue.abortReason());
       } else {
-        options.log.debug(
+        log.debug(
           "[listener]",
           "socket connection opened, notifying ready.",
         );
@@ -255,14 +264,14 @@ export async function handleSocketRelay(
       }
     };
     socket.onclose = () => {
-      options.log.debug(
+      log.debug(
         "[listener]",
         "socket connection closed before being opened, rejecting.",
       );
       ready.reject(new TunnelServerError({ reason: "socket-closed" }));
     };
     socket.onerror = (event) => {
-      options.log.debug(
+      log.debug(
         "[listener]",
         "socket connection errored before being opened, rejecting.",
       );
@@ -274,13 +283,16 @@ export async function handleSocketRelay(
       );
     };
 
-    options.log.debug(`waiting for socket connection to open.`);
+    log.debug(`waiting for socket connection to open.`);
     await ready.promise;
 
-    options.log.trace(`configuring 'abort' listeners.`);
+    log.debug(`configuring 'abort' listeners.`);
     socket.onopen = null;
     socket.onclose = () => {
-      options.log.debug(`[listener]`, `connection closed, aborting queue.`);
+      log.debug(
+        `[listener]`,
+        `connection closed, aborting queue.`,
+      );
       queue.abortWith(new TunnelServerError({ reason: "socket-closed" }));
     };
     socket.onerror = (event) => {
@@ -294,7 +306,10 @@ export async function handleSocketRelay(
         error = new Deno.errors.UnexpectedEof();
       }
 
-      options.log.debug(`[listener]`, `connection errored, aborting queue.`);
+      log.debug(
+        `[listener]`,
+        `connection errored, aborting queue.`,
+      );
       queue.abortWith(new TunnelServerError({ reason: "socket-error", error }));
     };
 
@@ -302,20 +317,22 @@ export async function handleSocketRelay(
       socket,
       queue,
       options.auth,
-      prefixLogger(options.log, "[auth]"),
+      prefixLogger(log, "[auth]"),
     );
 
     if (!security) {
-      options.log.debug(`authentication failed`);
+      log.debug(`authentication failed`);
       return;
     }
 
-    options.log.trace(`configure cipher writer and decrypted queue`);
+    log.configure(security);
+
+    log.debug(`configure cipher writer and decrypted queue`);
     const writer = createCipheredWriter({
       socket,
       security,
       signal: options.signal,
-      log: options.log,
+      log: log,
     });
     using decryptQueue = createDecipheredQueue({
       cipheredQueue: queue,
@@ -327,9 +344,9 @@ export async function handleSocketRelay(
     const decoder = new TextDecoder();
     let serviceBound = false;
 
-    relay.connected(socket, writer.write);
+    relay.connected(socket, writer.write, security.alias);
 
-    options.log.info(`[auth:${security.alias}]`, `ready, waiting commands`);
+    log.info(`ready, waiting commands`);
     while (!options.signal.aborted) {
       const buffer = safeReader(
         await decryptQueue.shift(),
@@ -340,14 +357,16 @@ export async function handleSocketRelay(
 
       switch (command) {
         case RelayCommand.SOCKET_CLOSE: {
-          options.log.debug(`received close command`);
+          log.debug(`received close command`);
           writer.write(new Uint8Array([RelayCommand.SOCKET_CLOSE]));
           return;
         }
 
         case RelayCommand.SERVICE_BIND: {
           if (!security.permissions.bind.enabled) {
-            options.log.trace(`received bind request, but bind is not allowed`);
+            log.debug(
+              `received bind request, but bind is not allowed`,
+            );
             writer.write(
               new Uint8Array([
                 RelayCommand.SERVICE_BIND,
@@ -359,7 +378,7 @@ export async function handleSocketRelay(
           }
 
           if (serviceBound) {
-            options.log.trace(
+            log.debug(
               `received bind request, but socket is already bound`,
             );
             writer.write(
@@ -410,7 +429,7 @@ export async function handleSocketRelay(
           }
 
           if (someInvalidService) {
-            options.log.trace(
+            log.debug(
               `received bind request, some service types are not valid`,
             );
             writer.write(
@@ -423,7 +442,7 @@ export async function handleSocketRelay(
             else break;
           }
           if (someUnauthorized) {
-            options.log.trace(
+            log.debug(
               `received bind request, but some services are unauthorized`,
             );
             writer.write(
@@ -436,7 +455,7 @@ export async function handleSocketRelay(
             else break;
           }
           if (someUnavailable) {
-            options.log.trace(
+            log.debug(
               `received bind request, but some services are already bound`,
             );
             writer.write(
@@ -449,7 +468,10 @@ export async function handleSocketRelay(
             else break;
           }
 
-          options.log.trace(`received bind request, services bound`, services);
+          log.debug(
+            `received bind request, services bound`,
+            services,
+          );
           writer.write(
             new Uint8Array([RelayCommand.SERVICE_BIND, RelayBindReply.SUCCESS]),
           );
@@ -463,7 +485,7 @@ export async function handleSocketRelay(
           const uid = buffer.int32();
 
           if (!security.permissions.connect.enabled) {
-            options.log.trace(
+            log.debug(
               `received connect request, but connect is not allowed`,
             );
             writer.write(
@@ -478,7 +500,9 @@ export async function handleSocketRelay(
           }
 
           if (uid <= 0 || relay.connection(socket, uid)) {
-            options.log.trace(`received connect request, but uid is not valid`);
+            log.debug(
+              `received connect request, but uid is not valid`,
+            );
             writer.write(
               new Uint8Array([
                 RelayCommand.SERVICE_CONNECT,
@@ -493,7 +517,7 @@ export async function handleSocketRelay(
           const serviceType = buffer.uint8();
 
           if (!(serviceType in RelayServiceType)) {
-            options.log.trace(
+            log.debug(
               `received connect request, but service type is not valid`,
             );
             writer.write(
@@ -515,7 +539,7 @@ export async function handleSocketRelay(
             serviceName,
           );
           if (!allowed) {
-            options.log.trace(
+            log.debug(
               `received connect request, but service is not authorized`,
             );
             writer.write(
@@ -531,7 +555,7 @@ export async function handleSocketRelay(
 
           const found = relay.service(serviceName);
           if (found == null) {
-            options.log.trace(
+            log.debug(
               `received connect request, but service is not found '${serviceName}'`,
             );
             writer.write(
@@ -545,8 +569,8 @@ export async function handleSocketRelay(
             else break;
           }
 
-          if (found !== serviceType) {
-            options.log.trace(
+          if (found.type !== serviceType) {
+            log.debug(
               `received connect request, but service type does not match`,
             );
             writer.write(
@@ -560,7 +584,9 @@ export async function handleSocketRelay(
             else break;
           }
 
-          options.log.trace(`received connect request, linked`);
+          log.debug(
+            `received connect request, linked to '${serviceName}@${found.remote}'`,
+          );
           relay.link(socket, serviceName, uid, buffer.dataLeft());
 
           break;
@@ -618,7 +644,7 @@ export async function handleSocketRelay(
 
         case RelayCommand.UNSUPPORTED: {
           const unsupportedCommand = buffer.uint8();
-          options.log.error(
+          log.error(
             `client notified unsupported command: ${
               printEnum(
                 RelayCommand,
@@ -630,7 +656,7 @@ export async function handleSocketRelay(
         }
 
         default: {
-          options.log.warn(
+          log.warn(
             `received unsupported command: ${printEnum(RelayCommand, command)}`,
           );
           writer.write(new Uint8Array([RelayCommand.UNSUPPORTED, command]));
@@ -651,8 +677,9 @@ export async function handleSocketRelay(
   }
 }
 
-export function createRelay(log: Logger): Relay {
+export function createRelay(): Relay {
   type RegisteredSocket = {
+    alias: string;
     write: TunnelWriter;
     relayCounter: number;
     connections: Map<number, RelayServiceConnection>;
@@ -665,8 +692,9 @@ export function createRelay(log: Logger): Relay {
   const registeredSockets = new Map<WebSocket, RegisteredSocket>();
 
   return {
-    connected: (socket, write) => {
+    connected: (socket, write, alias) => {
       registeredSockets.set(socket, {
+        alias,
         write,
         relayCounter: 0,
         connections: new Map(),
@@ -694,7 +722,10 @@ export function createRelay(log: Logger): Relay {
 
     service: (service: string) => {
       const found = boundServices.get(service);
-      return found?.type;
+      if (!found) return undefined;
+
+      const server = registeredSockets.get(found.socket)!;
+      return { remote: server.alias, type: found.type };
     },
     bind: (socket: WebSocket, services: RelayService[]) => {
       if (services.some((s) => boundServices.has(s.service))) {

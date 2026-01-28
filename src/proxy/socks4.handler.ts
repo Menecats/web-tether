@@ -1,3 +1,4 @@
+import { Logger } from "../common/log.ts";
 import { printEnum } from "../common/utils.ts";
 import {
   SOCKS_HANDSHAKE_TIMEOUT,
@@ -24,7 +25,8 @@ function createResponse(response: Socks4Reply) {
 }
 
 export async function* handleSocks4(
-  options: CreateSocksServerOptions,
+  options: Omit<CreateSocksServerOptions, "log">,
+  log: Logger,
   writer: { write: (buffer: Uint8Array) => Promise<void> },
 ): SocksHandler {
   const { socks4 } = options;
@@ -33,28 +35,28 @@ export async function* handleSocks4(
   const { buffer, view } = yield { timeout: SOCKS_HANDSHAKE_TIMEOUT, size: 8 };
 
   const version = view.getUint8(0);
-  options.log.trace(`socks4: got version (${version}).`);
+  log.trace(`got version (${version}).`);
   if (version !== 0x04) {
-    options.log.trace(`socks4: invalid version.`);
+    log.trace(`invalid version.`);
     return undefined;
   }
 
   const command = view.getUint8(1);
-  options.log.trace(
-    `socks4: got command (${printEnum(Socks4Command, command)}).`,
+  log.trace(
+    `got command (${printEnum(Socks4Command, command)}).`,
   );
   if (command !== Socks4Command.CONNECT) {
-    options.log.trace(`socks4: unsupported command.`);
+    log.trace(`unsupported command.`);
     await writer.write(createResponse(Socks4Reply.FAILURE));
     return undefined;
   }
 
   const destinationPort = view.getUint16(2);
-  options.log.trace(`socks4: got destination port (${destinationPort}).`);
+  log.trace(`got destination port (${destinationPort}).`);
 
   let destinationMode: "ipv4" | "domain" = "ipv4";
   let destinationHost = buffer.subarray(4).join(".");
-  options.log.trace(`socks4: got destination host (${destinationHost}).`);
+  log.trace(`got destination host (${destinationHost}).`);
 
   const decoder = new TextDecoder();
 
@@ -66,26 +68,26 @@ export async function* handleSocks4(
     userIdentifierBuffer.subarray(0, userIdentifierBuffer.length - 1),
   );
 
-  options.log.trace(`socks4: got user identifier.`);
+  log.trace(`got user identifier.`);
 
   if (socks4.auth.enabled) {
-    options.log.trace(`socks4: validating used identifier.`);
+    log.trace(`validating used identifier.`);
     const result = await socks4.auth.validate(userIdentifier);
-    options.log.trace(`socks4: validation result (${result}).`);
+    log.trace(`validation result (${result}).`);
     if (result === "no-provider") {
-      options.log.trace(`socks4: closing.`);
+      log.trace(`closing.`);
       await writer.write(createResponse(Socks4Reply.USER_REJECTED_NO_PROVIDER));
       return undefined;
     }
     if (result === "no-match") {
-      options.log.trace(`socks4: closing.`);
+      log.trace(`closing.`);
       await writer.write(createResponse(Socks4Reply.USER_REJECTED_NO_MATCH));
       return undefined;
     }
   }
 
   if (destinationHost.startsWith("0.0.0.") && destinationHost !== "0.0.0.0") {
-    options.log.trace(`socks4: detected socks4a usage.`);
+    log.trace(`detected socks4a usage.`);
 
     destinationMode = "domain";
     const destinationHostBuffer = (yield {
@@ -96,8 +98,8 @@ export async function* handleSocks4(
       destinationHostBuffer.subarray(0, destinationHostBuffer.length - 1),
     );
 
-    options.log.trace(
-      `socks4: got socks4a destination host (${destinationHost}).`,
+    log.trace(
+      `got socks4a destination host (${destinationHost}).`,
     );
   }
 
@@ -107,18 +109,18 @@ export async function* handleSocks4(
     port: destinationPort,
   };
 
-  options.log.trace(
-    `socks4: creating tunnel (${destination.host}:${destination.port}).`,
+  log.trace(
+    `creating tunnel (${destination.host}:${destination.port}).`,
   );
-  const tunnelResponse = await options.tunnel(destination, options.log);
+  const tunnelResponse = await options.tunnel(destination, log);
 
   if (tunnelResponse.ok) {
-    options.log.trace(`socks4: tunnel created successfully.`);
+    log.trace(`tunnel created successfully.`);
     await writer.write(createResponse(Socks4Reply.SUCCESS));
     return tunnelResponse.tunnel;
   } else {
-    options.log.trace(
-      `socks4: error creating tunnel (${tunnelResponse.error}).`,
+    log.trace(
+      `error creating tunnel (${tunnelResponse.error}).`,
     );
     await writer.write(createResponse(Socks4Reply.FAILURE));
     return undefined;

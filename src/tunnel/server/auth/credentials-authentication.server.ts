@@ -27,14 +27,14 @@ export async function handleCredentialsAuthenticationServer(
 ): Promise<TunnelSecurity<"relay">> {
   const decoder = new TextDecoder();
 
-  log.trace("reading client identifier.");
+  log.debug("reading client identifier.");
   const identifier = buffer.data(buffer.uint8());
   const decodedIdentifier = decoder.decode(identifier);
 
-  log.trace(`looking up client '${identifier}'.`);
+  log.debug(`looking up client '${identifier}'.`);
   const client = await auth.lookup(decodedIdentifier);
   if (!client) {
-    log.trace(
+    log.debug(
       "client not found, proceeding with mock authentication to avoid user enumeration.",
     );
 
@@ -47,7 +47,7 @@ export async function handleCredentialsAuthenticationServer(
     const mockIV = crypto.getRandomValues(new Uint8Array(16));
     const mockKey = crypto.getRandomValues(new Uint8Array(32));
 
-    log.trace("sending mock challenge.");
+    log.debug("sending mock challenge.");
     socket.send(
       new Uint8Array([
         RelayVersion7,
@@ -64,21 +64,21 @@ export async function handleCredentialsAuthenticationServer(
       ]),
     );
 
-    log.trace("wait for pointless solution.");
+    log.debug("wait for pointless solution.");
     await queue.shift({
       timeout: 1000, // TODO
       timeoutError: () => new TunnelServerError({ reason: "timeout" }),
     });
     await randomWait(100, 500);
 
-    log.debug("socket unauthorized (unknown client identifier).");
+    log.info("socket unauthorized (unknown client identifier).");
     socket.send(
       new Uint8Array([RelayVersion7, RelayAuthentication.UNAUTHORIZED]),
     );
     throw new TunnelServerError({ reason: "auth-unknown-client" });
   }
 
-  log.trace("client found, derive handshake key.");
+  log.debug("client found, derive handshake key.");
 
   const handshakeIV = crypto.getRandomValues(new Uint8Array(16));
   const handshakeKey = await crypto.subtle.importKey(
@@ -89,7 +89,7 @@ export async function handleCredentialsAuthenticationServer(
     ["encrypt", "decrypt"],
   );
 
-  log.trace("generate and cipher session key.");
+  log.debug("generate and cipher session key.");
   const sessionKey = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     true,
@@ -103,7 +103,7 @@ export async function handleCredentialsAuthenticationServer(
     ),
   );
 
-  log.trace("sending session challenge.");
+  log.debug("sending session challenge.");
   socket.send(
     new Uint8Array([
       RelayVersion7,
@@ -120,14 +120,14 @@ export async function handleCredentialsAuthenticationServer(
     ]),
   );
 
-  log.trace("wait for challenge solution.");
+  log.debug("wait for challenge solution.");
   const encryptedSolution = await queue.shift({
     timeout: 1000, // TODO
     timeoutError: () => new TunnelServerError({ reason: "timeout" }),
   });
   await randomWait(100, 500);
 
-  log.trace("create tunnel security manager.");
+  log.debug("create tunnel security manager.");
   const security = createTunnelSecurity({
     alias: client.alias,
     role: "relay",
@@ -142,7 +142,7 @@ export async function handleCredentialsAuthenticationServer(
   });
 
   try {
-    log.trace("decrypting and validating received solution.");
+    log.debug("decrypting and validating received solution.");
     const solution = safeReader(
       await security.decrypt(encryptedSolution),
       () => new TunnelServerError({ reason: "buffer-too-short" }),
@@ -172,13 +172,13 @@ export async function handleCredentialsAuthenticationServer(
       throw new TunnelServerError({ reason: "auth-challenge-failed" });
     }
 
-    log.debug("socket authenticated.");
+    log.info("socket authenticated.");
     socket.send(
       new Uint8Array([RelayVersion7, RelayAuthentication.AUTHORIZED]),
     );
     return security;
   } catch (error) {
-    log.debug("socket unauthorized (challenge failed).");
+    log.info("socket unauthorized (challenge failed).");
     socket.send(
       new Uint8Array([RelayVersion7, RelayAuthentication.UNAUTHORIZED]),
     );

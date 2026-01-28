@@ -1,5 +1,8 @@
 import { TunnelWriter } from "../tunnel/common/tunnel.common.types.ts";
-import { TunnelClientError } from "../tunnel/common/tunnel.errors.ts";
+import {
+  errorLevel,
+  TunnelClientError,
+} from "../tunnel/common/tunnel.errors.ts";
 import { TunnelSecurity } from "../tunnel/common/tunnel.security.ts";
 import { asyncAction } from "./async.ts";
 import { Logger } from "./log.ts";
@@ -101,7 +104,7 @@ export function createDecipheredQueue({
   });
 
   asyncAction(
-    async (actionSignal) => {
+    async ({ signal: actionSignal }) => {
       try {
         while (!actionSignal.aborted) {
           const encryptedPacket = await queue.shift({ signal: actionSignal });
@@ -156,7 +159,7 @@ export function createCipheredWriter({
           socket.send(ciphered);
         }
       } catch (err) {
-        log.debug(`error sending data`, err);
+        log[errorLevel(err)](`error sending data`, err);
       }
     },
     { signal },

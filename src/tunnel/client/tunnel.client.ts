@@ -2,7 +2,7 @@ import { delay } from "@std/async/delay";
 import { prefixLogger } from "../../common/log.ts";
 import { deriveSignal } from "../../common/utils.ts";
 import { TunnelRelayClientOptions } from "../common/tunnel.common.types.ts";
-import { TunnelClientError } from "../common/tunnel.errors.ts";
+import { errorLevel, TunnelClientError } from "../common/tunnel.errors.ts";
 import { validateTunnelClientConfiguration } from "./config/validate.ts";
 import { createTunnelClientRawSocketSericeServer } from "./services/raw-socket-server.service.ts";
 import { createTunnelClientSocksProxyServiceServer } from "./services/socks-proxy-server.service.ts";
@@ -15,7 +15,7 @@ export async function createTunnelRelayClient(
   await validateTunnelClientConfiguration(options);
 
   if (options.services.proxyClient.enabled) {
-    options.log.debug("create [socks-proxy] listeners");
+    options.log.info(`[socks-proxy]`, "setting up proxy listener");
   }
   const socksProxyListeners = options.services.proxyClient.enabled
     ? [
@@ -29,7 +29,7 @@ export async function createTunnelRelayClient(
     : [];
 
   if (options.services.connect.length) {
-    options.log.debug("create [raw-socket listeners");
+    options.log.info(`[raw-socket]`, "setting up socket listeners");
   }
   const rawSocketListeners = options.services.connect.map((connection) =>
     createTunnelClientRawSocketSericeServer({
@@ -42,17 +42,20 @@ export async function createTunnelRelayClient(
 
   let connectedOnce = false;
   let failed = 0;
+  let counter = 0;
 
-  options.log.trace("starting loop done");
+  options.log.info("starting connection loop");
   try {
     let lastAbortReason: unknown | undefined = undefined;
     while (!options.signal.aborted) {
       if (failed) {
-        const waitDelay = options.performance.reconnectDelay({
-          attempts: failed,
-          valid: connectedOnce,
-          reason: lastAbortReason,
-        });
+        const waitDelay = await delay(100).then(() =>
+          options.performance.reconnectDelay({
+            attempts: failed,
+            valid: connectedOnce,
+            reason: lastAbortReason,
+          })
+        );
         lastAbortReason = undefined;
 
         if (waitDelay === false) {
@@ -69,9 +72,11 @@ export async function createTunnelRelayClient(
         await delay(waitDelay, { signal: options.signal });
       }
 
-      options.log.debug(`connecting to '${options.endpoint}'`);
+      options.log.info(`connecting to '${options.endpoint}'`);
 
-      const log = prefixLogger(options.log, "[socket]");
+      const log = prefixLogger(options.log, `[socket:${counter++}]`);
+
+      log.info("start handling socket");
 
       const socket = new WebSocket(options.endpoint);
       socket.binaryType = "arraybuffer";
@@ -106,15 +111,11 @@ export async function createTunnelRelayClient(
               break;
 
             case "socket-error":
-              if (error.reason.error instanceof Deno.errors.UnexpectedEof) {
-                log.debug(`socket got Unexpected EOF`);
-              } else {
-                log.error("error handling socket", error);
-              }
-              break;
-
             default:
-              log.error("error handling socket", error);
+              log[errorLevel(error)](
+                `error handling socket: '${error.reason.reason}'`,
+                error,
+              );
               break;
           }
         } else {
@@ -125,7 +126,7 @@ export async function createTunnelRelayClient(
         socketAbort.abort(error);
       } finally {
         // This abort is emitted only if not already performed in the 'catch'
-        log.trace("done handling socket");
+        log.info("done handling socket");
         socketAbort.abort(new TunnelClientError({ reason: "socket-closed" }));
       }
 
@@ -134,5 +135,5 @@ export async function createTunnelRelayClient(
   } catch (err) {
     options.log.error("error while handling connection loop", err);
   }
-  options.log.trace("connection loop done");
+  options.log.info("connection loop ended");
 }

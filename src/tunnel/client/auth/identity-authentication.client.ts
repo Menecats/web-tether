@@ -36,10 +36,10 @@ export async function handleClientIdentityAuthentication({
 > {
   log.debug(`initializing`);
 
-  log.trace(`hashing client key`);
+  log.debug(`hashing client key`);
   const clientKeyHash = await hashPublicKey(auth.clientKeys.publicKey);
 
-  log.trace(`sending handshake`);
+  log.info(`sending handshake`);
   socket.send(
     new Uint8Array([
       RelayVersion7,
@@ -48,19 +48,19 @@ export async function handleClientIdentityAuthentication({
     ]),
   );
 
-  log.trace(`creating session info`);
+  log.debug(`creating session info`);
   const sessionInfo = new Uint8Array([
     RelayVersion7,
     RelayAuthentication.ADVANCED_AUTH,
   ]);
 
-  log.trace(`deriving shared secret`);
+  log.debug(`deriving shared secret`);
   const sharedSecret = await deriveRawSecret(
     auth.clientKeys.privateKey,
     auth.serverKey,
   );
 
-  log.trace(`waiting for challenge`);
+  log.info(`waiting for challenge`);
   const authChallenge = safeReader(
     await queue.shift({
       timeout: 1000,
@@ -68,7 +68,7 @@ export async function handleClientIdentityAuthentication({
     }),
     () => new TunnelClientError({ reason: "buffer-too-short" }),
   );
-  log.trace(`parsing received challenge`);
+  log.debug(`parsing received challenge`);
 
   const challengeVersion = authChallenge.uint8();
   if (challengeVersion !== RelayVersion7) {
@@ -87,20 +87,20 @@ export async function handleClientIdentityAuthentication({
     });
   }
 
-  log.trace(`reading handshake salt`);
+  log.debug(`reading handshake salt`);
   const sessionSalt = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`reading encrypted challenge`);
+  log.debug(`reading encrypted challenge`);
   const encryptedChallenge = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`deriving session key`);
+  log.debug(`deriving session key`);
   const sessionKey = await deriveSessionKey(
     sharedSecret,
     sessionSalt,
     sessionInfo,
   );
 
-  log.trace(`instantiating session security`);
+  log.debug(`instantiating session security`);
   const security = createTunnelSecurity({
     alias: undefined,
     role: "client",
@@ -114,12 +114,12 @@ export async function handleClientIdentityAuthentication({
       }),
   });
 
-  log.trace(`decrypting challenge`);
+  log.debug(`decrypting challenge`);
   const decryptedChallenge = new Uint8Array(
     await security.decrypt(encryptedChallenge),
   );
 
-  log.trace(`solving challenge`);
+  log.info(`solving challenge`);
   socket.send(
     await security.encrypt(
       new Uint8Array([
@@ -131,7 +131,7 @@ export async function handleClientIdentityAuthentication({
     ),
   );
 
-  log.trace(`waiting result`);
+  log.debug(`waiting result`);
 
   const authResult = safeReader(
     await queue.shift({
@@ -158,7 +158,7 @@ export async function handleClientIdentityAuthentication({
     });
   }
 
-  log.trace(`authenticated`);
+  log.info(`authenticated`);
 
   return security;
 }

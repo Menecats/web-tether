@@ -236,13 +236,13 @@ await new Command()
     let auth: TunnelRelayClientOptions["auth"];
 
     const setupLog_auth = prefixLogger(log, "[setup]", "[auth]");
-    setupLog_auth.info("Configuring authentication");
+    setupLog_auth.info("configuring authentication");
     if (options.authCredentialsIdentifier) {
-      setupLog_auth.trace("using 'credentials' mode");
+      setupLog_auth.debug("using 'credentials' mode");
 
       const identifier = options.authCredentialsIdentifier;
 
-      log.trace("requesting passkey (from input or secure prompt)");
+      log.debug("requesting passkey (from input or secure prompt)");
       const passkey = options.authCredentialsPasskey ||
         promptSecret("Passkey:");
       if (!passkey) {
@@ -256,12 +256,12 @@ await new Command()
         passkey,
       };
     } else if (options.authIdentityPrivateKey) {
-      setupLog_auth.trace("using 'identity' mode");
+      setupLog_auth.debug("using 'identity' mode");
 
       const localPrivateKeyFile = options.authIdentityPrivateKey;
       const relayPublicKeyFile = options.authIdentityRelayPublicKey!;
 
-      setupLog_auth.trace(`checking local private key file existence`);
+      setupLog_auth.debug(`checking local private key file existence`);
       if (!(await safeStat(localPrivateKeyFile))) {
         setupLog_auth.error(
           `Identity private key file '${localPrivateKeyFile}' not found.`,
@@ -269,7 +269,7 @@ await new Command()
         return;
       }
 
-      setupLog_auth.trace(`checking relay public key file existence`);
+      setupLog_auth.debug(`checking relay public key file existence`);
       if (!(await safeStat(relayPublicKeyFile))) {
         setupLog_auth.error(
           `Relay public key file '${relayPublicKeyFile}' not found.`,
@@ -277,10 +277,10 @@ await new Command()
         return;
       }
 
-      setupLog_auth.trace(`reading identity private key file`);
+      setupLog_auth.debug(`reading identity private key file`);
       const privateKey = await Deno.readTextFile(localPrivateKeyFile);
 
-      setupLog_auth.trace(`parsing PEM-formatted key`);
+      setupLog_auth.debug(`parsing PEM-formatted key`);
       const privateKeyBuffer = pemToBuffer(privateKey);
       if (!privateKeyBuffer) {
         setupLog_auth.error(`Invalid key content: not in PEM format.`);
@@ -295,17 +295,17 @@ await new Command()
 
       let localPrivateKey: CryptoKeyPair;
       try {
-        setupLog_auth.trace(`importing ECDH private key`);
+        setupLog_auth.debug(`importing ECDH private key`);
         localPrivateKey = await importECDHPrivateKey(privateKeyBuffer.buffer);
       } catch (err) {
         setupLog_auth.error(`Failed to import private key:`, err);
         return;
       }
 
-      setupLog_auth.trace(`reading relay public key file`);
+      setupLog_auth.debug(`reading relay public key file`);
       const publicKey = await Deno.readTextFile(relayPublicKeyFile);
 
-      setupLog_auth.trace(`parsing base64-formatted key`);
+      setupLog_auth.debug(`parsing base64-formatted key`);
       let publicKeyBuffer: Uint8Array<ArrayBuffer>;
       try {
         publicKeyBuffer = Uint8Array.fromBase64(publicKey.trim());
@@ -316,7 +316,7 @@ await new Command()
 
       let relayPublicKey: CryptoKey;
       try {
-        setupLog_auth.trace(`importing ECDH public key`);
+        setupLog_auth.debug(`importing ECDH public key`);
         relayPublicKey = await importECDHPublicKey(publicKeyBuffer);
       } catch (err) {
         setupLog_auth.error(`Failed to import public key:`, err);
@@ -344,10 +344,14 @@ await new Command()
     Deno.addSignalListener("SIGINT", interruptListener);
 
     try {
-      const setupLog_proxyConnect = prefixLogger(
+      const proxyConnectLog = prefixLogger(
         log,
-        "[setup]",
         "[proxy-connect]",
+      );
+
+      const proxyConnectLog_setup = prefixLogger(
+        proxyConnectLog,
+        "[setup]",
       );
       let proxyConnectDestination:
         | ((
@@ -355,8 +359,8 @@ await new Command()
         ) => TunnelRelayClientProxyDestination)
         | undefined;
       if (options.proxyConnectStatic) {
-        setupLog_proxyConnect.trace(
-          `configuring static proxy connect to service '${options.proxyConnectStatic}'`,
+        proxyConnectLog_setup.info(
+          `configuring static proxy to service '${options.proxyConnectStatic}'`,
         );
         proxyConnectDestination = (request) => ({
           type: "relay",
@@ -365,8 +369,8 @@ await new Command()
         });
       }
       if (options.proxyConnectDynamic) {
-        setupLog_proxyConnect.trace(
-          `configuring dynamic proxy connect to service from file '${options.proxyConnectDynamic}'`,
+        proxyConnectLog_setup.info(
+          `configuring dynamic proxy from file '${options.proxyConnectDynamic}'`,
         );
 
         let proxyConfiguration:
@@ -383,8 +387,8 @@ await new Command()
             }[];
           };
         const readProxyMapping = async (): Promise<boolean> => {
-          const readLog = prefixLogger(setupLog_proxyConnect, "[read]");
-          readLog.trace("checking config file existance");
+          const readLog = prefixLogger(proxyConnectLog, "[read]");
+          readLog.debug("checking config file existance");
           const stat = await safeStat(options.proxyConnectDynamic!);
           if (!stat) {
             proxyConfiguration = undefined;
@@ -395,12 +399,12 @@ await new Command()
           }
 
           try {
-            readLog.trace("reading config file");
+            readLog.debug("reading config file");
             const content = await Deno.readTextFile(
               options.proxyConnectDynamic!,
             );
 
-            readLog.trace("parsing routes");
+            readLog.debug("parsing routes");
             const rows = content
               .split("\n")
               .map((row, index) => ({ content: row.trim(), row: index + 1 }))
@@ -457,7 +461,7 @@ await new Command()
 
             proxyConfiguration = { default: defaultRoute, routes };
 
-            readLog.trace("routes loaded", proxyConfiguration);
+            readLog.debug("routes loaded", proxyConfiguration);
 
             return true;
           } catch (err) {
@@ -471,44 +475,68 @@ await new Command()
         };
 
         if (!(await readProxyMapping())) {
-          setupLog_proxyConnect.error(`Unable to parse config file.`);
+          proxyConnectLog_setup.error(`Unable to parse config file.`);
           return;
         }
 
-        asyncAction(async (watcherSignal) => {
-          const watcherLog = prefixLogger(setupLog_proxyConnect, "[watch]");
-          watcherLog.info("starting proxy configuration file watcher");
+        const { ready: watcherReady } = asyncAction(
+          async ({ signal: watcherSignal, ready }) => {
+            const watcherLog = prefixLogger(proxyConnectLog, "[watch]");
+            watcherLog.info("starting proxy configuration file watcher");
 
-          const watcher = Deno.watchFs(options.proxyConnectDynamic!);
-          const aborter = cancellableAbort(
-            watcherSignal,
-            () => watcher.close(),
-          );
+            const watcher = Deno.watchFs(options.proxyConnectDynamic!);
+            const aborter = cancellableAbort(
+              watcherSignal,
+              () => watcher.close(),
+            );
 
-          try {
-            for await (const event of watcher) {
-              if (event.kind === "access") continue;
+            ready();
 
-              watcherLog.trace(
-                "dynamic proxy configuration file changed, reloading",
-                event,
-              );
-              await readProxyMapping();
+            try {
+              let reloadDebounce: number | undefined;
+
+              for await (const event of watcher) {
+                if (event.kind === "access") continue;
+
+                clearTimeout(reloadDebounce);
+                reloadDebounce = setTimeout(async () => {
+                  watcherLog.info(
+                    "dynamic proxy configuration file changed, reloading",
+                  );
+                  try {
+                    await readProxyMapping();
+                  } catch (err) {
+                    aborter.cancel();
+                    watcherLog.error("error while parsing proxy mapping", err);
+                  }
+                }, 250);
+              }
+            } finally {
+              aborter.cancel();
+              watcherLog.info("stopped watching proxy configuration file");
             }
-          } finally {
-            aborter.cancel();
-            watcherLog.trace("stopped watching proxy configuration file");
-          }
-        }, controller);
+          },
+          controller,
+        );
+        await watcherReady;
 
+        const resolveLog = prefixLogger(proxyConnectLog, "[resolve]");
         proxyConnectDestination = (request) => {
-          if (!proxyConfiguration) return { type: "abort" };
+          if (!proxyConfiguration) {
+            resolveLog.warn(
+              "cannot resolve proxy request, no configuration found",
+            );
+            return { type: "abort" };
+          }
 
+          resolveLog.trace("resolving request", request);
           const route = proxyConfiguration.routes.find(
             (r) => r.destination === request.host,
           );
 
           if (route) {
+            resolveLog.trace(`found '${route.route.type}' route`);
+
             if (route.route.type === "relay") {
               return {
                 type: "relay",
@@ -530,6 +558,11 @@ await new Command()
           }
 
           const defaultRoute = proxyConfiguration.default;
+
+          resolveLog.trace(
+            `no routes found, using default '${defaultRoute.type}' route`,
+          );
+
           if (defaultRoute.type === "relay") {
             return {
               type: "relay",
@@ -615,13 +648,15 @@ await new Command()
 
     const setupLog_identity = prefixLogger(log, "[setup]", "[identity]");
 
+    setupLog_identity.info("configuring server identity");
+
     let relayIdentity: CryptoKeyPair | undefined;
     if (!options.identity) {
       setupLog_identity.warn(
-        "No identity file provided, identity-based client authentication will be disabled.",
+        "no identity file provided, identity-based client authentication will be disabled.",
       );
     } else {
-      setupLog_identity.trace(`checking identity file existence`);
+      setupLog_identity.debug(`checking identity file existence`);
       const stat = await safeStat(options.identity);
       if (!stat) {
         setupLog_identity.error(
@@ -630,10 +665,10 @@ await new Command()
         return;
       }
 
-      setupLog_identity.trace(`reading identity file`);
+      setupLog_identity.debug(`reading identity file`);
       const privateKey = await Deno.readTextFile(options.identity);
 
-      setupLog_identity.trace(`parsing PEM-formatted key`);
+      setupLog_identity.debug(`parsing PEM-formatted key`);
       const privateKeyBuffer = pemToBuffer(privateKey);
       if (!privateKeyBuffer) {
         setupLog_identity.error(`Invalid key content: not in PEM format.`);
@@ -647,54 +682,58 @@ await new Command()
       }
 
       try {
-        setupLog_identity.trace(`importing ECDH private key`);
+        setupLog_identity.debug(`importing ECDH private key`);
         relayIdentity = await importECDHPrivateKey(privateKeyBuffer.buffer);
       } catch (err) {
         setupLog_identity.error(`Failed to import private key:`, err);
         return;
       }
+
+      setupLog_identity.info("server identity successfully configured");
     }
 
     const setupLog_clients = prefixLogger(log, "[setup]", "[clients]");
 
     let relayPermissions: TunnelRelayPermissionsSchema | undefined;
     async function readPermissions(): Promise<boolean> {
-      setupLog_clients.trace("checking clients file existance");
+      setupLog_clients.info("loading clients configuration");
+
+      setupLog_clients.debug("checking clients file existance");
       const stat = await safeStat(options.clients);
       if (!stat) {
         relayPermissions = undefined;
         setupLog_clients.warn(
-          `Clients file '${options.clients}' not found: no clients will be authorized.`,
+          `clients file '${options.clients}' not found: no clients will be authorized.`,
         );
         return false;
       }
 
       try {
-        setupLog_clients.trace("reading clients file");
+        setupLog_clients.debug("reading clients file");
         const content = await Deno.readTextFile(options.clients);
         let decoded: unknown = undefined;
         try {
-          setupLog_clients.trace("attempting JSON parse");
+          setupLog_clients.debug("attempting JSON parse");
           decoded = JSON.parse(content);
         } catch (jsonErr) {
           try {
             decoded = parse(content);
 
             // Out of order logging to make more sens in error logging
-            setupLog_clients.trace("JSON parse failed");
+            setupLog_clients.debug("JSON parse failed");
 
-            setupLog_clients.trace("attempting YAML parse");
+            setupLog_clients.debug("attempting YAML parse");
           } catch (yamlErr) {
-            setupLog_clients.trace("JSON parse failed", jsonErr);
+            setupLog_clients.debug("JSON parse failed", jsonErr);
 
-            setupLog_clients.trace("attempting YAML parse");
-            setupLog_clients.trace("YAML parse failed", yamlErr);
+            setupLog_clients.debug("attempting YAML parse");
+            setupLog_clients.debug("YAML parse failed", yamlErr);
           }
         }
 
         if (!decoded) throw "Content is neither JSON nor YAML";
 
-        setupLog_clients.trace("validating clients configuration");
+        setupLog_clients.debug("validating clients configuration");
 
         relayPermissions = await TunnelRelayPermissionsSchema.parseAsync(
           decoded,
@@ -702,11 +741,11 @@ await new Command()
 
         // TODO: Validate duplicate client identifiers / missing bindings / etc..
 
-        setupLog_clients.trace("clients configuration loaded successfully");
+        setupLog_clients.info("clients configuration successfully loaded");
         return true;
       } catch (err) {
         setupLog_clients.error(
-          `Failed to read or parse clients file '${options.clients}': clients will not be authorized.`,
+          `failed to read or parse clients file '${options.clients}': clients will not be authorized.`,
           err,
         );
         relayPermissions = undefined;
@@ -715,34 +754,40 @@ await new Command()
     }
 
     if (!(await readPermissions())) {
-      setupLog_clients.error(`Unable to parse clients file.`);
+      setupLog_clients.error(`unable to parse clients file.`);
       return;
     }
 
     const controller = new AbortController();
 
-    asyncAction(async (watcherSignal) => {
-      const watcherLog = prefixLogger(setupLog_clients, "[watch]");
-      watcherLog.info("starting clients file watcher");
+    const { ready: watcherReady } = asyncAction(
+      async ({ signal: watcherSignal, ready }) => {
+        const watcherLog = prefixLogger(setupLog_clients, "[watch]");
+        watcherLog.info("starting clients file watcher");
 
-      const watcher = Deno.watchFs(options.clients);
-      const aborter = cancellableAbort(watcherSignal, () => watcher.close());
+        const watcher = Deno.watchFs(options.clients);
+        const aborter = cancellableAbort(watcherSignal, () => watcher.close());
 
-      try {
-        for await (const event of watcher) {
-          if (event.kind === "access") continue;
+        ready();
 
-          watcherLog.trace("clients file changed, reloading", event);
-          await readPermissions();
+        try {
+          for await (const event of watcher) {
+            if (event.kind === "access") continue;
+
+            watcherLog.info("clients file changed, reloading");
+            await readPermissions();
+          }
+        } finally {
+          aborter.cancel();
+          watcherLog.info("stopped watching clients file");
         }
-      } finally {
-        aborter.cancel();
-        watcherLog.trace("stopped watching clients file");
-      }
-    }, controller);
+      },
+      controller,
+    );
+    await watcherReady;
 
     const interruptListener = () => {
-      prefixLogger(log, ["signal"]).info("Interrupt received, shutting down");
+      prefixLogger(log, "[signal]").warn("Interrupt received, shutting down");
       controller.abort(
         new TunnelServerError({ reason: "application-aborted" }),
       );
@@ -864,17 +909,17 @@ await new Command()
   .action(async (options) => {
     const log = configureLogger(options.logLevel, console.error);
 
-    log.trace("generating and exporting ECDH key pair");
+    log.debug("generating and exporting ECDH key pair");
     const pair = await exportECDHKeyPair();
 
-    log.trace("normalizing identity file path");
+    log.debug("normalizing identity file path");
     const privateIdentityFile = normalize(options.identityFile);
     const publicIdentityFile = privateIdentityFile + ".pub";
 
-    log.trace(`  private: '${privateIdentityFile}'`);
-    log.trace(`  public : '${publicIdentityFile}'`);
+    log.debug(`  private: '${privateIdentityFile}'`);
+    log.debug(`  public : '${publicIdentityFile}'`);
 
-    log.trace("ensuring private key file does not end with '.pub'");
+    log.debug("ensuring private key file does not end with '.pub'");
     if (privateIdentityFile.endsWith(".pub")) {
       log.error("Identity file must not end with '.pub'");
       return;
@@ -895,13 +940,13 @@ await new Command()
     }
     if (privateIdentityStat || publicIdentityStat) return;
 
-    log.trace(`writing private key file at '${privateIdentityFile}'`);
+    log.debug(`writing private key file at '${privateIdentityFile}'`);
     await Deno.writeTextFile(
       privateIdentityFile,
       pair.privateKey.content.encoded,
     );
 
-    log.trace(`writing public key file at '${publicIdentityFile}'`);
+    log.debug(`writing public key file at '${publicIdentityFile}'`);
     await Deno.writeTextFile(
       publicIdentityFile,
       pair.publicKey.content.decoded.toBase64(),
@@ -928,7 +973,7 @@ await new Command()
   .action(async (options) => {
     const log = configureLogger(options.logLevel, console.error);
 
-    log.trace("validating identifier characters");
+    log.debug("validating identifier characters");
     if (!/^[a-zA-Z0-9.\-_]+$/.test(options.identifier)) {
       log.error(
         "Identifier may contain only letters, numbers, and these characters: `.`, `-`, `_`",
@@ -936,26 +981,26 @@ await new Command()
       return;
     }
 
-    log.trace("requesting passkey (from input or secure prompt)");
+    log.debug("requesting passkey (from input or secure prompt)");
     const passkey = options.passkey || promptSecret("Passkey:");
     if (!passkey) {
       log.error("Passkey is required to generate credentials");
       return;
     }
 
-    log.trace("generating cryptographic salt (16 bytes)");
+    log.debug("generating cryptographic salt (16 bytes)");
     const salt = crypto.getRandomValues(new Uint8Array(16));
     log.debug("generated salt (raw bytes):", salt);
 
-    log.trace("encoding passkey to UTF-8 bytes");
+    log.debug("encoding passkey to UTF-8 bytes");
     const encodedPasskey = new TextEncoder().encode(passkey);
 
-    log.trace("deriving hashed passkey using PBKDF2-SHA512");
+    log.debug("deriving hashed passkey using PBKDF2-SHA512");
     const hashedPasskey = new Uint8Array(
       await pbkdf2Hash512(encodedPasskey, salt),
     );
 
-    log.trace("outputting credential record");
+    log.debug("outputting credential record");
     console.log(
       `credentials:${options.identifier}:${salt.toBase64()}|${hashedPasskey.toBase64()}`,
     );

@@ -58,7 +58,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = ({
   const serviceLog = prefixLogger(log, `[link:${uid}/${name}]`);
   const serviceAbort = deriveSignal(signal);
 
-  serviceLog.trace(`requested`);
+  serviceLog.trace(`request received`);
 
   let destination: Deno.ConnectOptions;
   if (service.type === RelayServiceType.SOCKS_PROXY) {
@@ -70,7 +70,7 @@ export const handle_SERVICE_LINK: TunnelClientCommandHandler = ({
     destination = { ...service.destination, signal: serviceAbort.signal };
   }
 
-  serviceLog.trace("connecting");
+  serviceLog.trace("connecting to destination", destination);
 
   const { promise: done, resolve: finalize } = Promise.withResolvers<void>();
 

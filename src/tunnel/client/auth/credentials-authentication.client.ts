@@ -33,7 +33,7 @@ export async function handleClientCredentialsAuthentication({
 
   const encodedIdentifier = encoder.encode(auth.identifier);
 
-  log.trace(`sending handshake`);
+  log.info(`sending handshake`);
   socket.send(
     new Uint8Array([
       RelayVersion7,
@@ -44,7 +44,7 @@ export async function handleClientCredentialsAuthentication({
     ]),
   );
 
-  log.trace(`waiting for challenge`);
+  log.info(`waiting for challenge`);
   const authChallenge = safeReader(
     await queue.shift({
       timeout: 1000, // TODO: Timeout
@@ -52,7 +52,7 @@ export async function handleClientCredentialsAuthentication({
     }),
     () => new TunnelClientError({ reason: "buffer-too-short" }),
   );
-  log.trace(`parsing received challenge`);
+  log.debug(`parsing received challenge`);
 
   const challengeVersion = authChallenge.uint8();
   if (challengeVersion !== RelayVersion7) {
@@ -71,21 +71,21 @@ export async function handleClientCredentialsAuthentication({
     });
   }
 
-  log.trace(`reading handshake salt`);
+  log.debug(`reading handshake salt`);
   const salt = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`reading handshake iv`);
+  log.debug(`reading handshake iv`);
   const handshakeIV = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`reading chiphered session key`);
+  log.debug(`reading chiphered session key`);
   const cipheredSessionKey = authChallenge.data(authChallenge.uint8());
 
-  log.trace(`deriving shared hash`);
+  log.debug(`deriving shared hash`);
   const hash = new Uint8Array(
     await pbkdf2Hash512(encoder.encode(auth.passkey), salt),
   );
 
-  log.trace(`deriving decryption key`);
+  log.debug(`deriving decryption key`);
   const handshakeKey = await crypto.subtle.importKey(
     "raw",
     hash,
@@ -94,7 +94,7 @@ export async function handleClientCredentialsAuthentication({
     ["encrypt", "decrypt"],
   );
 
-  log.trace(`decrypting session key`);
+  log.debug(`decrypting session key`);
   const sessionKey = await crypto.subtle.importKey(
     "raw",
     await crypto.subtle.decrypt(
@@ -107,7 +107,7 @@ export async function handleClientCredentialsAuthentication({
     ["encrypt", "decrypt"],
   );
 
-  log.trace(`instantiating session security`);
+  log.debug(`instantiating session security`);
   const security = createTunnelSecurity({
     alias: undefined,
     role: "client",
@@ -121,14 +121,14 @@ export async function handleClientCredentialsAuthentication({
       }),
   });
 
-  log.trace(`solving challenge`);
+  log.info(`solving challenge`);
   socket.send(
     await security.encrypt(
       new Uint8Array([RelayVersion7, RelayAuthentication.BASIC_AUTH, ...hash]),
     ),
   );
 
-  log.trace(`waiting result`);
+  log.debug(`waiting result`);
 
   const authResult = safeReader(
     await queue.shift({
@@ -155,7 +155,7 @@ export async function handleClientCredentialsAuthentication({
     });
   }
 
-  log.trace(`authenticated`);
+  log.info(`authenticated`);
 
   return security;
 }

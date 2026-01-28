@@ -2,7 +2,7 @@ import {
   createCipheredWriter,
   createDecipheredQueue,
 } from "../../common/communication.ts";
-import { Logger } from "../../common/log.ts";
+import { Logger, prefixLogger } from "../../common/log.ts";
 import {
   encodeUint16,
   encodeWithUint16Length,
@@ -63,34 +63,34 @@ export async function handleClientSocket({
   connected: notifyConnected,
   services,
 }: HandleClientSocketOptions) {
-  log.trace(`configuring 'message' listener`);
+  log.debug(`configuring 'message' listener`);
   using queue = consumableAsyncQueue<ArrayBuffer>({ signal: socketSignal });
   socket.onmessage = ({ data }) => {
     if (data instanceof ArrayBuffer) queue.push(data);
   };
 
-  log.trace(`configuring 'ready' listeners`);
+  log.debug(`configuring 'ready' listeners`);
   const ready = Promise.withResolvers<void>();
   socket.onopen = () => {
     if (queue.aborted()) {
-      log.trace(
+      log.debug(
         "[listener] socket connection opened, but queue is already aborted, rejecting",
         queue.abortReason(),
       );
       ready.reject(queue.abortReason());
     } else {
-      log.trace("[listener] socket connection opened, notifying ready");
+      log.debug("[listener] socket connection opened, notifying ready");
       ready.resolve();
     }
   };
   socket.onclose = () => {
-    log.trace(
+    log.debug(
       "[listener] socket connection closed before being opened, rejecting",
     );
     ready.reject(new TunnelClientError({ reason: "socket-closed" }));
   };
   socket.onerror = (event) => {
-    log.trace(
+    log.debug(
       "[listener] socket connection errored before being opened, rejecting",
     );
     ready.reject(
@@ -100,13 +100,13 @@ export async function handleClientSocket({
       }),
     );
   };
-  log.trace(`waiting for socket to connect`);
+  log.debug(`waiting for socket connection to open.`);
   await ready.promise;
 
-  log.trace(`configuring 'abort' listeners`);
+  log.debug(`configuring 'abort' listeners`);
   socket.onopen = null;
   socket.onclose = () => {
-    log.trace(`[listener] connection closed, aborting queue`);
+    log.debug(`[listener] connection closed, aborting queue`);
     queue.abortWith(new TunnelClientError({ reason: "socket-closed" }));
   };
   socket.onerror = (event) => {
@@ -120,21 +120,22 @@ export async function handleClientSocket({
       error = new Deno.errors.UnexpectedEof();
     }
 
-    log.trace(`[listener] connection errored, aborting queue`);
+    log.debug(`[listener] connection errored, aborting queue`);
     queue.abortWith(new TunnelClientError({ reason: "socket-error", error }));
   };
 
-  log.trace(`perform handshake`);
+  const authLog = prefixLogger(log, "[auth]");
+  authLog.info("setup authentication");
   const security = await handleClientAuthentication({
     socket,
     queue,
     auth: options.auth,
-    log,
+    log: authLog,
   });
 
   notifyConnected();
 
-  log.trace(`configure cipher writer and decrypted queue`);
+  log.debug(`configure cipher writer and decrypted queue`);
   const writer = createCipheredWriter({
     socket,
     security,
@@ -183,21 +184,27 @@ export async function handleClientSocket({
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
-  handleTunnelClientServices({
-    services: [...services.rawSockets, ...services.socksProxies],
-    generateUID: () => localUID++,
+  log.info(`connection established`);
 
-    connections: serviceConnections,
+  if (services.rawSockets.length + services.socksProxies.length) {
+    const servicesLog = prefixLogger(log, "[services]");
+    servicesLog.info("configuring services");
+    handleTunnelClientServices({
+      services: [...services.rawSockets, ...services.socksProxies],
+      generateUID: () => localUID++,
 
-    write: writer.write,
-    signal: socketSignal,
+      connections: serviceConnections,
 
-    encoder,
-    log,
-  });
+      write: writer.write,
+      signal: socketSignal,
+
+      encoder,
+      log: servicesLog,
+    });
+  }
 
   if (registeredServices.size) {
-    log.trace(`sending bind request`);
+    log.info(`sending bind request`);
     writer.write(
       new Uint8Array([
         RelayCommand.SERVICE_BIND,
@@ -210,7 +217,7 @@ export async function handleClientSocket({
     );
   }
 
-  log.trace(`waiting commands`);
+  log.debug(`waiting commands`);
   while (!socketSignal.aborted) {
     const buffer = safeReader(
       await decryptQueue.shift(),

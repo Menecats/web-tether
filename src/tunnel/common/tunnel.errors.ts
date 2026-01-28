@@ -1,3 +1,5 @@
+import { LogLevel } from "../../common/log.ts";
+
 export type TunnelErrorReason =
   | { reason: "unknown-error"; error: unknown }
   | { reason: "timeout" }
@@ -37,4 +39,26 @@ export type TunnelServerErrorReason =
   };
 export class TunnelServerError {
   constructor(public readonly reason: TunnelServerErrorReason) {}
+}
+
+export function errorLevel(error: unknown): LogLevel {
+  if (error instanceof Deno.errors.Interrupted) return "trace";
+  if (error instanceof Deno.errors.UnexpectedEof) return "trace";
+
+  if (
+    (error instanceof TunnelClientError) ||
+    (error instanceof TunnelServerError)
+  ) {
+    const { reason } = error;
+
+    if (reason.reason === "application-aborted") return "debug";
+    if (reason.reason === "socket-closed") return "debug";
+    if (reason.reason === "timeout") return "info";
+    if (reason.reason === "socket-error") {
+      if (reason.error instanceof Deno.errors.Interrupted) return "trace";
+      if (reason.error instanceof Deno.errors.UnexpectedEof) return "trace";
+    }
+  }
+
+  return "error";
 }

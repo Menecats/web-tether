@@ -24,7 +24,7 @@ await createSocksServer({
         port: destination.port,
       });
 
-      log.trace(
+      log.debug(
         `Connected to ${tunnel.remoteAddr.hostname}:${tunnel.remoteAddr.port} from ${tunnel.localAddr.hostname}:${tunnel.localAddr.port}.`,
       );
 

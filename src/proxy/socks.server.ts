@@ -1,7 +1,12 @@
 import { deadline } from "@std/async";
 import { ConnectionTunnel } from "../common/communication.ts";
-import { Logger, prefixLogger } from "../common/log.ts";
+import {
+  ConfigurableLogger,
+  configurablePrefixLogger,
+  Logger,
+} from "../common/log.ts";
 import { concatBuffers, safelyClose } from "../common/utils.ts";
+import { errorLevel } from "../tunnel/common/tunnel.errors.ts";
 import {
   SOCKS_HANDSHAKE_INIT_TIMEOUT,
   SocksHandler,
@@ -71,14 +76,20 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
       }
 
       const connectionId = crypto.randomUUID();
-      const connectionLog: Logger = prefixLogger(
+      const connectionLog = configurablePrefixLogger(
         options.log,
-        `[${connectionId}]:`,
+        {
+          configure: (
+            { version }: { version: "socks4" | "socks5" },
+          ) => [`[${connectionId}:${version}]`],
+          initial: [`[${connectionId}:setup]`],
+        },
       );
 
       connectionLog.debug(`New connection.`);
       const connectionDone = handleSocksConnection(
-        { ...options, log: connectionLog },
+        options,
+        connectionLog,
         connection,
       );
 
@@ -91,7 +102,7 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
           connectionLog.error(`Error while handling connection.`, error);
         })
         .finally(() => {
-          connectionLog.trace(`Purging connection.`);
+          connectionLog.debug(`Purging connection.`);
           allConnections.delete(connectionDone);
         });
     }
@@ -104,17 +115,18 @@ export async function createSocksServer(options: CreateSocksServerOptions) {
 }
 
 export async function handleSocksConnection(
-  options: CreateSocksServerOptions,
+  options: Omit<CreateSocksServerOptions, "log">,
+  log: ConfigurableLogger<{ version: "socks4" | "socks5" }>,
   connection: ConnectionTunnel,
 ) {
   let workingBuffer = new Uint8Array(0);
   let bufferRequest: SocksHandlerBufferRequest = { timeout: 0, size: 0 };
 
-  options.log.debug(`Creating protocol manager`);
+  log.debug(`Creating protocol manager`);
 
   const hashshakeReader = connection.readable.getReader();
   const handshakeWriter = connection.writable.getWriter();
-  const protocolManager = handleProtocol(options, handshakeWriter);
+  const protocolManager = handleProtocol(options, log, handshakeWriter);
 
   let tunnel: ConnectionTunnel | undefined;
 
@@ -126,7 +138,7 @@ export async function handleSocksConnection(
           : workingBuffer.indexOf(bufferRequest.until) >= 0
       ) {
         if (options.signal.aborted) {
-          options.log.trace(`Listener is aborted, closing.`);
+          log.trace(`Listener is aborted, closing.`);
           await protocolManager.return(undefined);
           break handshake;
         }
@@ -160,7 +172,7 @@ export async function handleSocksConnection(
       }
 
       if (options.signal.aborted) {
-        options.log.trace(`Listener is aborted, closing.`);
+        log.trace(`Listener is aborted, closing.`);
         await protocolManager.return(undefined);
         break handshake;
       }
@@ -172,11 +184,11 @@ export async function handleSocksConnection(
           signal: options.signal,
         },
       ).catch((err) => {
-        options.log.debug(`Buffer request interrupted.`, err);
+        log.trace(`Buffer request interrupted.`, err);
         throw err;
       });
       if (readBuffer.done) {
-        options.log.debug(`End of stream reached, closing.`);
+        log.debug(`End of stream reached, closing.`);
         return;
       }
 
@@ -188,7 +200,7 @@ export async function handleSocksConnection(
 
     if (!options.signal.aborted && tunnel) {
       if (workingBuffer?.length) {
-        options.log.trace(
+        log.trace(
           `Writing remaining buffer (${workingBuffer.length} bytes).`,
         );
 
@@ -197,7 +209,7 @@ export async function handleSocksConnection(
         remainingBytesWriter.releaseLock();
       }
 
-      options.log.trace(`Piping connection.`);
+      log.trace(`Piping connection.`);
 
       const closeConnections = () => {
         safelyClose(tunnel);
@@ -211,9 +223,7 @@ export async function handleSocksConnection(
           connection.readable.pipeTo(tunnel.writable),
           tunnel.readable.pipeTo(connection.writable),
         ]).catch((err) => {
-          if (!(err instanceof Deno.errors.Interrupted)) {
-            options.log.error(`Error while piping data, closing.`, err);
-          }
+          log[errorLevel(err)](`Error while piping data, closing.`, err);
         });
       } finally {
         options.signal.removeEventListener("abort", closeConnections);
@@ -226,10 +236,11 @@ export async function handleSocksConnection(
 }
 
 async function* handleProtocol(
-  options: CreateSocksServerOptions,
+  options: Omit<CreateSocksServerOptions, "log">,
+  log: ConfigurableLogger<{ version: "socks4" | "socks5" }>,
   writer: { write: (buffer: Uint8Array) => Promise<void> },
 ): SocksHandler {
-  options.log.trace(`handler: Reading socks version.`);
+  log.trace(`Reading socks version.`);
 
   const { view } = yield {
     timeout: SOCKS_HANDSHAKE_INIT_TIMEOUT,
@@ -239,29 +250,33 @@ async function* handleProtocol(
   const version = view.getUint8(0);
 
   if (version === Socks4Version) {
+    log.configure({ version: "socks4" });
+
     if (options.socks4.enabled) {
-      options.log.trace(`handler: Delegate socks4 handler.`);
-      return yield* handleSocks4(options, writer);
+      log.trace(`Delegate socks4 handler.`);
+      return yield* handleSocks4(options, log, writer);
     } else {
-      options.log.trace(`handler: socks4 handler not enabled, closing.`);
+      log.trace(`socks4 handler not enabled, closing.`);
       return;
     }
   }
 
   if (version === Socks5Version) {
+    log.configure({ version: "socks5" });
+
     if (options.socks5.enabled) {
-      options.log.trace(`handler: Delegate socks5 handler.`);
+      log.trace(`Delegate socks5 handler.`);
       return yield* handleSocks5(
         options.socks5,
         options.tunnel,
         writer,
-        prefixLogger(options.log, `socks5:`),
+        log,
       );
     } else {
-      options.log.trace(`handler: socks5 handler not enabled, closing.`);
+      log.trace(`socks5 handler not enabled, closing.`);
       return;
     }
   }
 
-  options.log.trace(`handler: version (${version}) not supported.`);
+  log.trace(`version (${version}) not supported.`);
 }

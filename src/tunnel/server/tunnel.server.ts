@@ -1,4 +1,4 @@
-import { Logger, prefixLogger } from "../../common/log.ts";
+import { configurablePrefixLogger, Logger } from "../../common/log.ts";
 import { verifyCryptoKeyPair } from "../../common/security.ts";
 import { TunnelServerError } from "../common/tunnel.errors.ts";
 import { TunnelSecurityPermissions } from "../common/tunnel.security.ts";
@@ -71,9 +71,9 @@ export async function createTunnelRelayServer(
     return;
   }
 
-  options.log.debug(`validating configuration.`);
+  options.log.debug(`validating relay configuration.`);
   if (options.auth.identity.enabled) {
-    options.log.trace(`validating 'identity' authentication server key pair.`);
+    options.log.debug(`validating 'identity' authentication server key pair.`);
     const valid = await verifyCryptoKeyPair(options.auth.identity.serverKeys);
     if (!valid) {
       throw new TunnelServerError({
@@ -106,7 +106,7 @@ export async function createTunnelRelayServer(
   };
 
   options.log.debug(`creating relay context`);
-  const relay = createRelay(options.log);
+  const relay = createRelay();
 
   options.log.debug(`creating server routes`);
   const relayRoutes: RelayRoute[] = [
@@ -123,18 +123,23 @@ export async function createTunnelRelayServer(
         const { socket, response } = Deno.upgradeWebSocket(request);
 
         const socketId = crypto.randomUUID();
-        const socketLog: Logger = prefixLogger(
+        const socketLog = configurablePrefixLogger(
           options.log,
-          "[socket]",
-          `[${socketId}]`,
+          {
+            configure: (
+              config: { alias: string },
+            ) => ["[socket]", `[${socketId}:${config.alias}]`],
+            initial: ["[socket]", `[${socketId}]`],
+          },
         );
 
-        socketLog.debug(`new socket connected.`);
-        const socketDone = handleSocketRelay(
-          { ...options, log: socketLog },
+        socketLog.info(`socket connected.`);
+        const socketDone = handleSocketRelay({
+          options,
+          log: socketLog,
           socket,
           relay,
-        );
+        });
 
         // Register active connection
         allSockets.add(socketDone);
@@ -150,22 +155,22 @@ export async function createTunnelRelayServer(
 
                 case "socket-error":
                   if (error.reason.error instanceof Deno.errors.UnexpectedEof) {
-                    socketLog.debug(`socket got Unexpected EOF`);
+                    socketLog.debug(`error handling socket: Unexpected EOF`);
                   } else {
-                    socketLog.error(`error handling socket.`, error);
+                    socketLog.error(`error handling socket:`, error);
                   }
                   break;
 
                 default:
-                  socketLog.error(`error handling socket.`, error);
+                  socketLog.error(`error handling socket:`, error);
                   break;
               }
             } else {
-              socketLog.error(`error handling socket.`, error);
+              socketLog.error(`error handling socket:`, error);
             }
           })
           .finally(() => {
-            socketLog.debug(`socket done.`);
+            socketLog.info(`socket disconnected.`);
             allSockets.delete(socketDone);
           });
 
