@@ -15,6 +15,7 @@ export type TunnelSecurityPermissions = {
     };
 };
 export type TunnelSecurity<Role extends TunnelSecurityRole> = {
+  readonly alias: string;
   readonly role: Role;
   readonly permissions: Role extends "relay" ? TunnelSecurityPermissions
     : undefined;
@@ -51,6 +52,7 @@ export function noPermissions(): TunnelSecurityPermissions {
 }
 
 export type TunnelSecurityOptions<Role extends TunnelSecurityRole> = {
+  alias: Role extends "relay" ? string : undefined;
   role: Role;
   key: CryptoKey;
   permissions: TunnelSecurity<Role>["permissions"];
@@ -67,6 +69,8 @@ export function createTunnelSecurity<Role extends TunnelSecurityRole>(
   let remoteCounter = 0n;
 
   return {
+    alias: options.alias ?? "@",
+
     role: localRole,
     permissions: options.permissions as TunnelSecurity<Role>["permissions"],
 

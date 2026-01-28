@@ -110,13 +110,18 @@ export async function handleClientSocket({
     queue.abortWith(new TunnelClientError({ reason: "socket-closed" }));
   };
   socket.onerror = (event) => {
+    let error = "error" in event ? event.error : event;
+
+    // Normalize 'UnexpectedEof' error if necessary
+    if (
+      "message" in event && event.message === "Unexpected EOF" &&
+      !(error instanceof Deno.errors.UnexpectedEof)
+    ) {
+      error = new Deno.errors.UnexpectedEof();
+    }
+
     log.trace(`[listener] connection errored, aborting queue`);
-    queue.abortWith(
-      new TunnelClientError({
-        reason: "socket-error",
-        error: "error" in event ? event.error : event,
-      }),
-    );
+    queue.abortWith(new TunnelClientError({ reason: "socket-error", error }));
   };
 
   log.trace(`perform handshake`);

@@ -129,6 +129,7 @@ export async function handleCredentialsAuthenticationServer(
 
   log.trace("create tunnel security manager.");
   const security = createTunnelSecurity({
+    alias: client.alias,
     role: "relay",
     key: sessionKey,
     permissions: client.permissions,

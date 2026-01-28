@@ -769,6 +769,7 @@ await new Command()
               }
 
               return {
+                alias: client.alias,
                 salt: client.auth.credentials.salt,
                 hash: client.auth.credentials.hash,
                 permissions: {
@@ -810,6 +811,7 @@ await new Command()
               }
 
               return {
+                alias: client.alias,
                 key: client.auth.publicKey,
                 permissions: {
                   bind: !client.permissions.some((p) => p.type === "bind")

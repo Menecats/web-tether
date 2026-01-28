@@ -20,6 +20,7 @@ export type CreateTunnelRelayOptions = {
         lookup: (identifier: string) =>
           | Promise<
             | {
+              alias: string;
               salt: Uint8Array<ArrayBuffer>;
               hash: Uint8Array<ArrayBuffer>;
               permissions: TunnelSecurityPermissions;
@@ -27,6 +28,7 @@ export type CreateTunnelRelayOptions = {
             | undefined
           >
           | {
+            alias: string;
             salt: Uint8Array<ArrayBuffer>;
             hash: Uint8Array<ArrayBuffer>;
             permissions: TunnelSecurityPermissions;
@@ -42,12 +44,14 @@ export type CreateTunnelRelayOptions = {
         lookupClient: (hash: Uint8Array<ArrayBuffer>) =>
           | Promise<
             | {
+              alias: string;
               key: CryptoKey;
               permissions: TunnelSecurityPermissions;
             }
             | undefined
           >
           | {
+            alias: string;
             key: CryptoKey;
             permissions: TunnelSecurityPermissions;
           }
@@ -138,10 +142,30 @@ export async function createTunnelRelayServer(
         // Once done deregister active connection
         socketDone
           .catch((error) => {
-            socketLog.error(`error handling socket.`, error);
+            if (error instanceof TunnelServerError) {
+              switch (error.reason.reason) {
+                case "application-aborted":
+                case "socket-closed":
+                  break;
+
+                case "socket-error":
+                  if (error.reason.error instanceof Deno.errors.UnexpectedEof) {
+                    socketLog.debug(`socket got Unexpected EOF`);
+                  } else {
+                    socketLog.error(`error handling socket.`, error);
+                  }
+                  break;
+
+                default:
+                  socketLog.error(`error handling socket.`, error);
+                  break;
+              }
+            } else {
+              socketLog.error(`error handling socket.`, error);
+            }
           })
           .finally(() => {
-            socketLog.trace(`socket done, cleaning up.`);
+            socketLog.debug(`socket done.`);
             allSockets.delete(socketDone);
           });
 
@@ -151,7 +175,16 @@ export async function createTunnelRelayServer(
   ];
 
   const server = Deno.serve(
-    { ...options.listen, signal: options.signal },
+    {
+      ...options.listen,
+      signal: options.signal,
+      onError: () => json({ error: "unhandled-error" }, { status: 500 }),
+      onListen: (addr) => {
+        options.log.info(
+          `http server listening on '${addr.hostname}:${addr.port}'.`,
+        );
+      },
+    },
     (request) => {
       for (const route of relayRoutes) {
         const result = route.pattern.exec(request.url);
@@ -170,11 +203,6 @@ export async function createTunnelRelayServer(
       }
       return json({ error: "not-found" }, { status: 404 });
     },
-  );
-  options.log.info(
-    `http server listening on '${
-      options.listen.hostname || "0.0.0.0"
-    }:${options.listen.port}'.`,
   );
   await server.finished;
   options.log.info(`http server done.`);

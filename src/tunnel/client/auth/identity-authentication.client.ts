@@ -102,6 +102,7 @@ export async function handleClientIdentityAuthentication({
 
   log.trace(`instantiating session security`);
   const security = createTunnelSecurity({
+    alias: undefined,
     role: "client",
     key: sessionKey,
     permissions: undefined,

@@ -156,7 +156,7 @@ export function createCipheredWriter({
           socket.send(ciphered);
         }
       } catch (err) {
-        log.error(`error sending data`, err);
+        log.debug(`error sending data`, err);
       }
     },
     { signal },

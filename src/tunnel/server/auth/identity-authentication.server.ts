@@ -49,6 +49,7 @@ export async function handleAdvencedAuthenticationServer(
     );
 
     const mockSecurity = createTunnelSecurity({
+      alias: "mock-authentication",
       role: "relay",
       key: mockSessionKey,
       permissions: noPermissions(),
@@ -111,6 +112,7 @@ export async function handleAdvencedAuthenticationServer(
   log.trace("create tunnel security manager.");
 
   const security = createTunnelSecurity({
+    alias: client.alias,
     role: "relay",
     key: sessionKey,
     permissions: client.permissions,

@@ -99,7 +99,27 @@ export async function createTunnelRelayClient(
           },
         });
       } catch (error) {
-        log.error("error handling socket", error);
+        if (error instanceof TunnelClientError) {
+          switch (error.reason.reason) {
+            case "application-aborted":
+            case "socket-closed":
+              break;
+
+            case "socket-error":
+              if (error.reason.error instanceof Deno.errors.UnexpectedEof) {
+                log.debug(`socket got Unexpected EOF`);
+              } else {
+                log.error("error handling socket", error);
+              }
+              break;
+
+            default:
+              log.error("error handling socket", error);
+              break;
+          }
+        } else {
+          log.error("error handling socket", error);
+        }
         failed++;
 
         socketAbort.abort(error);

@@ -240,14 +240,14 @@ export async function handleSocketRelay(
     };
     socket.onopen = () => {
       if (queue.aborted()) {
-        options.log.trace(
+        options.log.debug(
           "[listener]",
           "socket connection opened, but queue is already aborted, rejecting.",
           queue.abortReason(),
         );
         ready.reject(queue.abortReason());
       } else {
-        options.log.trace(
+        options.log.debug(
           "[listener]",
           "socket connection opened, notifying ready.",
         );
@@ -255,14 +255,14 @@ export async function handleSocketRelay(
       }
     };
     socket.onclose = () => {
-      options.log.trace(
+      options.log.debug(
         "[listener]",
         "socket connection closed before being opened, rejecting.",
       );
       ready.reject(new TunnelServerError({ reason: "socket-closed" }));
     };
     socket.onerror = (event) => {
-      options.log.trace(
+      options.log.debug(
         "[listener]",
         "socket connection errored before being opened, rejecting.",
       );
@@ -274,23 +274,28 @@ export async function handleSocketRelay(
       );
     };
 
-    options.log.trace(`waiting for socket connection to open.`);
+    options.log.debug(`waiting for socket connection to open.`);
     await ready.promise;
 
     options.log.trace(`configuring 'abort' listeners.`);
     socket.onopen = null;
     socket.onclose = () => {
-      options.log.trace(`[listener]`, `connection closed, aborting queue.`);
+      options.log.debug(`[listener]`, `connection closed, aborting queue.`);
       queue.abortWith(new TunnelServerError({ reason: "socket-closed" }));
     };
     socket.onerror = (event) => {
-      options.log.trace(`[listener]`, `connection errored, aborting queue.`);
-      queue.abortWith(
-        new TunnelServerError({
-          reason: "socket-error",
-          error: "error" in event ? event.error : event,
-        }),
-      );
+      let error = "error" in event ? event.error : event;
+
+      // Normalize 'UnexpectedEof' error if necessary
+      if (
+        "message" in event && event.message === "Unexpected EOF" &&
+        !(error instanceof Deno.errors.UnexpectedEof)
+      ) {
+        error = new Deno.errors.UnexpectedEof();
+      }
+
+      options.log.debug(`[listener]`, `connection errored, aborting queue.`);
+      queue.abortWith(new TunnelServerError({ reason: "socket-error", error }));
     };
 
     const security = await authenticateRelay(
@@ -324,7 +329,7 @@ export async function handleSocketRelay(
 
     relay.connected(socket, writer.write);
 
-    options.log.trace(`ready, waiting commands`);
+    options.log.info(`[auth:${security.alias}]`, `ready, waiting commands`);
     while (!options.signal.aborted) {
       const buffer = safeReader(
         await decryptQueue.shift(),

@@ -49,6 +49,7 @@ await createTunnelRelayServer({
       lookup: (identifier) => {
         return identifier === "test"
           ? Promise.resolve({
+            alias: "test",
             salt: testSalt,
             hash: testHash,
             permissions: testPermissions,
@@ -62,6 +63,7 @@ await createTunnelRelayServer({
       lookupClient: async (hash) => {
         if (areBuffersEqual(hash, clientHash)) {
           return {
+            alias: "test",
             key: client.publicKey,
             permissions: {
               bind: {
