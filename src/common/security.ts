@@ -108,8 +108,8 @@ export async function importECDHPublicKey(
 }
 
 export async function pbkdf2Hash512(
-  plaintext: Uint8Array<ArrayBuffer>,
-  salt: Uint8Array<ArrayBuffer>,
+  plaintext: ArrayBuffer | Uint8Array<ArrayBuffer>,
+  salt: ArrayBuffer | Uint8Array<ArrayBuffer>,
 ) {
   const keyMaterial = await crypto.subtle.importKey(
     "raw",

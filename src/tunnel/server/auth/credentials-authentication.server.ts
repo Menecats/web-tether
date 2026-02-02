@@ -1,5 +1,6 @@
 import { Logger } from "../../../common/log.ts";
 import { SafeReader, safeReader } from "../../../common/safe-buffer.ts";
+import { pbkdf2Hash512 } from "../../../common/security.ts";
 import {
   concatBuffers,
   ConsumableAsyncQueue,
@@ -31,7 +32,7 @@ export async function handleCredentialsAuthenticationServer(
   const identifier = buffer.data(buffer.uint8());
   const decodedIdentifier = decoder.decode(identifier);
 
-  log.debug(`looking up client '${identifier}'.`);
+  log.debug(`looking up client '${decodedIdentifier}'.`);
   const client = await auth.lookup(decodedIdentifier);
   if (!client) {
     log.debug(
@@ -165,11 +166,17 @@ export async function handleCredentialsAuthenticationServer(
       });
     }
 
-    const challengeSolution = solution.data(client.hash.length);
-    for (let i = 0; i < client.hash.length; ++i) {
-      if (client.hash[i] === challengeSolution[i]) continue;
+    const challengeSolution = solution.data(solution.uint8());
+    const hashedSolution = new Uint8Array(
+      await pbkdf2Hash512(challengeSolution, client.salt),
+    );
 
-      throw new TunnelServerError({ reason: "auth-challenge-failed" });
+    if (hashedSolution.length !== client.hash.length) {
+      for (let i = 0; i < client.hash.length; ++i) {
+        if (client.hash[i] === hashedSolution[i]) continue;
+
+        throw new TunnelServerError({ reason: "auth-challenge-failed" });
+      }
     }
 
     log.info("socket authenticated.");

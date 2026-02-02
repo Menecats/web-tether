@@ -995,9 +995,12 @@ await new Command()
     log.debug("encoding passkey to UTF-8 bytes");
     const encodedPasskey = new TextEncoder().encode(passkey);
 
-    log.debug("deriving hashed passkey using PBKDF2-SHA512");
+    log.debug("deriving intermediate hashed passkey using PBKDF2-SHA512");
+    const intermediateHashedPasskey = await pbkdf2Hash512(encodedPasskey, salt);
+
+    log.debug("deriving final hashed passkey using PBKDF2-SHA512");
     const hashedPasskey = new Uint8Array(
-      await pbkdf2Hash512(encodedPasskey, salt),
+      await pbkdf2Hash512(intermediateHashedPasskey, salt),
     );
 
     log.debug("outputting credential record");

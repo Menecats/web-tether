@@ -80,15 +80,20 @@ export async function handleClientCredentialsAuthentication({
   log.debug(`reading chiphered session key`);
   const cipheredSessionKey = authChallenge.data(authChallenge.uint8());
 
-  log.debug(`deriving shared hash`);
-  const hash = new Uint8Array(
+  log.debug(`deriving intermediate hash`);
+  const intermediateHash = new Uint8Array(
     await pbkdf2Hash512(encoder.encode(auth.passkey), salt),
+  );
+
+  log.debug(`deriving shared hash`);
+  const sharedHash = new Uint8Array(
+    await pbkdf2Hash512(intermediateHash, salt),
   );
 
   log.debug(`deriving decryption key`);
   const handshakeKey = await crypto.subtle.importKey(
     "raw",
-    hash,
+    sharedHash,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"],
@@ -124,7 +129,12 @@ export async function handleClientCredentialsAuthentication({
   log.info(`solving challenge`);
   socket.send(
     await security.encrypt(
-      new Uint8Array([RelayVersion7, RelayAuthentication.BASIC_AUTH, ...hash]),
+      new Uint8Array([
+        RelayVersion7,
+        RelayAuthentication.BASIC_AUTH,
+        intermediateHash.length,
+        ...intermediateHash,
+      ]),
     ),
   );
 
