@@ -5,3 +5,8 @@ clients:
     permissions:
       - "bind|*"
       - "connect|*"
+  - alias: client-02
+    auth: credentials:blablo:A2KiB1aFfKgBT23yyiy+Ww==|v09skXiJH21siJsaKeSkkrbGXWDIlepvGZEOAssD/34=
+    permissions:
+      - "bind|*"
+      - "connect|*"

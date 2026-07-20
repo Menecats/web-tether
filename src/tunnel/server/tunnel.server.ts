@@ -133,7 +133,7 @@ export async function createTunnelRelayServer(
           },
         );
 
-        socketLog.info(`socket connected.`);
+        socketLog.info(`socket connected.`); // TODO: add request address
         const socketDone = handleSocketRelay({
           options,
           log: socketLog,
