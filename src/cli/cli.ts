@@ -493,7 +493,7 @@ await new Command()
             ready();
 
             try {
-              let reloadDebounce: number | undefined;
+              let reloadDebounce: NodeJS.Timeout | undefined;
 
               for await (const event of watcher) {
                 if (event.kind === "access") continue;

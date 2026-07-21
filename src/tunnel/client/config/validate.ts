@@ -1,5 +1,8 @@
 import { verifyCryptoKeyPair } from "../../../common/security.ts";
-import { TunnelRelayClientOptions } from "../../common/tunnel.common.types.ts";
+import {
+  TunnelListenOptions,
+  TunnelRelayClientOptions,
+} from "../../common/tunnel.common.types.ts";
 import { TunnelClientError } from "../../common/tunnel.errors.ts";
 
 export async function validateTunnelClientConfiguration(
@@ -38,7 +41,7 @@ export async function validateTunnelClientConfiguration(
     });
   }
 
-  const boundAddresses: Deno.TcpListenOptions[] = [
+  const boundAddresses: TunnelListenOptions[] = [
     options.services.proxyClient.enabled
       ? [options.services.proxyClient.address]
       : [],
