@@ -1,1 +1,35 @@
+# --- Build / distribution output -------------------------------------------
 dist/
+
+# --- Deno --------------------------------------------------------------------
+# Local Deno cache / vendored dependencies
+.deno/
+vendor/
+deno_dir/
+
+# --- Editors & IDEs ----------------------------------------------------------
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.history/
+
+# --- Operating system --------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# Linux
+.directory
+.Trash-*

@@ -1,3 +1,5 @@
+import version from "../version.json" with { type: "json" };
+
 import { ArgumentValue, Command, EnumType, Type } from "@cliffy/command";
 import { InvalidTypeError } from "@cliffy/flags";
 import { promptSecret } from "@std/cli/prompt-secret";
@@ -138,7 +140,7 @@ export class SocketConnectType extends Type<
 
 await new Command()
   .name("web-tether")
-  .version("1.0.0-pre.0")
+  .version(version)
   .description(
     "Create and connect to WebSocket relays to expose or access TCP services securely.",
   )
