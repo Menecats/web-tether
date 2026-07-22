@@ -3,8 +3,9 @@ name: Release
 on:
   push:
     tags:
-      # Only run for version tags in the form vX.Y.Z
+      # Run for version tags in the form vX.Y.Z, with an optional -A.B suffix
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 permissions:
   contents: write
