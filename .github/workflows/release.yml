@@ -44,6 +44,13 @@ jobs:
 
           echo "version=$FILE_VERSION" >> "$GITHUB_OUTPUT"
 
+          # A version containing a "-" (e.g. 1.0.0-rc.2) is a pre-release
+          if [[ "$FILE_VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compute lowercase image name
         id: image
         run: |
@@ -58,6 +65,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          prerelease: ${{ steps.version.outputs.prerelease }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -74,6 +82,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             APP_JS=dist/web-tether_${{ steps.version.outputs.version }}.js
