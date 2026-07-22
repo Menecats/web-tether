@@ -1,13 +1,6 @@
 {
   "tasks": {
-    "bundle": "mkdir -p dist && deno bundle -o ./dist/web-tether.js ./src/cli/cli.ts",
-    "compile": "deno task bundle && deno run -A ./src/compile.ts",
-    "compile:darwin:aarch64": "deno task bundle && deno run -A ./src/compile.ts darwin:aarch64",
-    "compile:darwin:amd64": "deno task bundle && deno run -A ./src/compile.ts darwin:amd64",
-    "compile:linux:aarch64": "deno task bundle && deno run -A ./src/compile.ts linux:aarch64",
-    "compile:linux:amd64": "deno task bundle && deno run -A ./src/compile.ts linux:amd64",
-    "compile:win:aarch64": "deno task bundle && deno run -A ./src/compile.ts win:aarch64",
-    "compile:win:amd64": "deno task bundle && deno run -A ./src/compile.ts win:amd64",
+    "compile": "deno run -A ./src/compile.ts",
     "proxy": "deno run --allow-net src/proxy.ts",
     "proxy:dev": "deno run --watch --allow-net src/proxy.ts",
     "tunnel": "deno run -A ./src/cli/cli.ts",
